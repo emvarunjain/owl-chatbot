@@ -1,0 +1,25 @@
+version: "3.8"
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  ingestion:
+    build: ./ingestion-service
+    ports:
+      - "8081:8081"
+    depends_on:
+      - qdrant
+
+  chatapi:
+    build: ./chat-api
+    ports:
+      - "8080:8080"
+    depends_on:
+      - qdrant
+
+volumes:
+  qdrant_data:
