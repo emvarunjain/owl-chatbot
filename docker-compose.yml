@@ -1,25 +1,59 @@
-version: "3.8"
 services:
-  qdrant:
-    image: qdrant/qdrant:latest
-    ports:
-      - "6333:6333"
-    volumes:
-      - qdrant_data:/qdrant/storage
-
-  ingestion:
-    build: ./ingestion-service
-    ports:
-      - "8081:8081"
-    depends_on:
-      - qdrant
-
-  chatapi:
-    build: ./chat-api
+  owl-app:
+    build: .
+    container_name: owl-app
+    env_file:
+      - .env
     ports:
       - "8080:8080"
     depends_on:
-      - qdrant
+      qdrant:
+        condition: service_healthy
+      mongodb:
+        condition: service_started
+    environment:
+      # Qdrant over gRPC on the compose network
+      SPRING_AI_VECTORSTORE_QDRANT_HOST: qdrant
+      SPRING_AI_VECTORSTORE_QDRANT_PORT: 6334
+      SPRING_AI_VECTORSTORE_QDRANT_COLLECTION_NAME: owl_kb
+      SPRING_AI_VECTORSTORE_QDRANT_USE_TLS: "false"
+      # Ollama on your Mac host
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+    volumes:
+      - ./logs:/app/logs
+
+  qdrant:
+    image: qdrant/qdrant:v1.15.3
+    container_name: qdrant
+    ports:
+      - "6333:6333"   # REST
+      - "6334:6334"   # gRPC
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/6333'"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+    volumes:
+      - qdrant_storage:/qdrant/storage
+
+  mongodb:
+    image: mongo:6.0
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  redpanda:
+    image: redpandadata/redpanda:latest
+    container_name: redpanda
+    command: >
+      redpanda start --overprovisioned --smp 1 --memory 1G --reserve-memory 0M
+      --node-id 0 --check=false
+    ports:
+      - "9092:9092"
+      - "9644:9644"
 
 volumes:
-  qdrant_data:
+  qdrant_storage: {}
+  mongo_data: {}

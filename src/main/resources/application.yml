@@ -1,0 +1,46 @@
+server:
+  port: 8080
+  connection-timeout: 120s
+  tomcat:
+    max-swallow-size: -1   # disable Tomcat swallow limit (helps with large uploads)
+    max-http-form-post-size: -1 # -1 = unlimited
+
+spring:
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 512MB
+      max-request-size: 512MB
+  data:
+    mongodb:
+      uri: ${MONGO_URI}
+  ai:
+    ollama:
+      base-url: ${OLLAMA_BASE_URL}
+      chat:
+        options:
+          model: ${OLLAMA_CHAT_MODEL}
+      embedding:
+        options:
+          model: ${OLLAMA_EMBED_MODEL}
+    vectorstore:
+      qdrant:
+        host: host.docker.internal
+        port: 6334
+        collection-name: ${QDRANT_COLLECTION}
+        distance: COSINE
+        initialize-schema: true
+
+owl:
+  cache:
+    similarity-threshold: 0.90
+    enable-cross-tenant: false
+    max-answer-chars: 4000
+
+  retrieval:
+    score-threshold: 0.35  # tighten to 0.40–0.50 for stricter answers
+
+logging:
+  level:
+    org.springframework.web.multipart: INFO
+    root: INFO
