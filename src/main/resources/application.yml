@@ -1,6 +1,6 @@
 server:
   port: 8080
-  connection-timeout: 120s
+  # connection-timeout: 120s  # Deprecated - use server specific properties
 spring:
   servlet:
     multipart:
@@ -42,6 +42,8 @@ owl:
     max-answer-chars: 4000
   retrieval:
     score-threshold: 0.45
+    remote:
+      url: ${RETRIEVAL_URL:}
   rerank:
     enabled: true
   rateLimit:
@@ -58,9 +60,6 @@ owl:
     model: ${OWL_SAFETY_MODEL:}
     ollama:
       baseUrl: ${OWL_SAFETY_OLLAMA_BASE_URL:${SPRING_AI_OLLAMA_BASE_URL:http://localhost:11434}}
-  retrieval:
-    remote:
-      url: ${RETRIEVAL_URL:}
   fallback:
     enabled: false
     provider: serpapi
@@ -89,8 +88,6 @@ management:
     health:
       probes:
         enabled: true
-
-management:
   endpoints:
     web:
       exposure:

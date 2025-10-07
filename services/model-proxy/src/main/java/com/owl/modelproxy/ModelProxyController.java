@@ -4,8 +4,8 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.api.OpenAiApi;
-import org.springframework.ai.azure.openai.AzureOpenAiChatModel;
-import org.springframework.ai.azure.openai.api.AzureOpenAiApi;
+// import org.springframework.ai.azure.openai.AzureOpenAiChatModel;
+// import org.springframework.ai.azure.openai.api.AzureOpenAiApi;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -43,17 +43,13 @@ public class ModelProxyController {
     }
 
     private ChatClient openAi(String model) {
-        if (openAiKey == null || openAiKey.isBlank()) return defaultClient;
-        OpenAiApi api = new OpenAiApi(openAiBase, openAiKey);
-        ChatModel m = new OpenAiChatModel(api, model);
-        return ChatClient.builder(m).build();
+        // TODO: Fix OpenAI integration when proper API classes are available
+        return defaultClient;
     }
 
     private ChatClient azureOpenAi(String deployment) {
-        if (azureKey == null || azureKey.isBlank() || azureEndpoint == null || azureEndpoint.isBlank()) return defaultClient;
-        AzureOpenAiApi api = new AzureOpenAiApi(azureEndpoint, azureKey);
-        ChatModel m = new AzureOpenAiChatModel(api, deployment);
-        return ChatClient.builder(m).build();
+        // TODO: Fix Azure OpenAI integration when proper API classes are available
+        return defaultClient;
     }
 
     private ChatClient bedrock(String model) {

@@ -6,7 +6,7 @@
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>3.3.2</version>
+    <version>3.3.13</version>
     <relativePath/>
   </parent>
 
@@ -17,9 +17,28 @@
   <description>OWL: Multi-tenant RAG chatbot</description>
 
   <properties>
-    <java.version>21</java.version>
-    <spring-ai.version>1.0.1</spring-ai.version>
+    <java.version>17</java.version>
+    <spring-ai.version>1.0.0</spring-ai.version>
   </properties>
+
+  <repositories>
+    <repository>
+      <id>spring-milestones</id>
+      <name>Spring Milestones</name>
+      <url>https://repo.spring.io/milestone</url>
+      <snapshots>
+        <enabled>false</enabled>
+      </snapshots>
+    </repository>
+    <repository>
+      <id>shibboleth-releases</id>
+      <name>Shibboleth Releases</name>
+      <url>https://build.shibboleth.net/nexus/content/repositories/releases/</url>
+      <snapshots>
+        <enabled>false</enabled>
+      </snapshots>
+    </repository>
+  </repositories>
 
   <dependencyManagement>
     <dependencies>
@@ -53,20 +72,18 @@
       <artifactId>spring-ai-starter-model-ollama</artifactId>
       <version>${spring-ai.version}</version>
     </dependency>
+    <!-- Optional Spring AI modules for external providers -->
     <dependency>
       <groupId>org.springframework.ai</groupId>
-      <artifactId>spring-ai-starter-openai</artifactId>
+      <artifactId>spring-ai-openai</artifactId>
       <version>${spring-ai.version}</version>
+      <optional>true</optional>
     </dependency>
     <dependency>
       <groupId>org.springframework.ai</groupId>
-      <artifactId>spring-ai-starter-azure-openai</artifactId>
+      <artifactId>spring-ai-azure-openai</artifactId>
       <version>${spring-ai.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.springframework.ai</groupId>
-      <artifactId>spring-ai-starter-aws-bedrock</artifactId>
-      <version>${spring-ai.version}</version>
+      <optional>true</optional>
     </dependency>
     <dependency>
       <groupId>org.springframework.ai</groupId>
@@ -122,6 +139,36 @@
     <dependency>
       <groupId>org.springframework.security</groupId>
       <artifactId>spring-security-saml2-service-provider</artifactId>
+      <exclusions>
+        <exclusion>
+          <groupId>org.opensaml</groupId>
+          <artifactId>opensaml-saml-impl</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.opensaml</groupId>
+          <artifactId>opensaml-saml-api</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.opensaml</groupId>
+          <artifactId>opensaml-core</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <!-- Explicit OpenSAML dependencies with correct versions -->
+    <dependency>
+      <groupId>org.opensaml</groupId>
+      <artifactId>opensaml-saml-impl</artifactId>
+      <version>4.3.2</version>
+    </dependency>
+    <dependency>
+      <groupId>org.opensaml</groupId>
+      <artifactId>opensaml-saml-api</artifactId>
+      <version>4.3.2</version>
+    </dependency>
+    <dependency>
+      <groupId>org.opensaml</groupId>
+      <artifactId>opensaml-core</artifactId>
+      <version>4.3.2</version>
     </dependency>
     <!-- Google Drive API (optional; used for connectors) -->
     <dependency>

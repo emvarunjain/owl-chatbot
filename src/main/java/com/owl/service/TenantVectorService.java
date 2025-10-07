@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.*;
+// import java.util.Collections; // unused
 
 @Service
 public class TenantVectorService {
@@ -41,7 +42,11 @@ public class TenantVectorService {
         String collection = tenantCollections.collectionName(tenantId);
         List<Map<String, Object>> points = new ArrayList<>();
         for (Document d : docs) {
-            List<Double> vec = embeddings.embed(d.getText()).getResult();
+            float[] embeddingArray = embeddings.embed(d.getText());
+            List<Double> vec = new ArrayList<>();
+            for (float f : embeddingArray) {
+                vec.add((double) f);
+            }
             Map<String, Object> payload = new HashMap<>(d.getMetadata());
             payload.put("tenantId", tenantId);
             payload.put("text", d.getText());
@@ -66,7 +71,11 @@ public class TenantVectorService {
             throw new UnsupportedOperationException("Direct search not supported in single-collection mode");
         }
         String collection = tenantCollections.collectionName(tenantId);
-        List<Double> vec = embeddings.embed(query).getResult();
+        float[] embeddingArray = embeddings.embed(query);
+        List<Double> vec = new ArrayList<>();
+        for (float f : embeddingArray) {
+            vec.add((double) f);
+        }
         Map<String, Object> filter = null;
         if (scopeDocument != null && !scopeDocument.isBlank()) {
             filter = Map.of("must", List.of(
@@ -87,7 +96,9 @@ public class TenantVectorService {
                 .retrieve()
                 .bodyToMono(Map.class)
                 .block();
-        List<Map<String, Object>> result = (List<Map<String, Object>>) resp.getOrDefault("result", List.of());
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> result = (List<Map<String, Object>>) resp.get("result");
+        if (result == null) result = new ArrayList<>();
         List<Document> out = new ArrayList<>();
         for (Map<String, Object> r : result) {
             Map<String, Object> payload = (Map<String, Object>) r.get("payload");

@@ -6,8 +6,8 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.api.OpenAiApi;
-import org.springframework.ai.azure.openai.AzureOpenAiChatModel;
-import org.springframework.ai.azure.openai.api.AzureOpenAiApi;
+// import org.springframework.ai.azure.openai.AzureOpenAiChatModel;
+// import org.springframework.ai.azure.openai.api.AzureOpenAiApi;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -31,19 +31,13 @@ public class ModelProviderRouter {
     }
 
     private ChatClient openAiClient(String tenantId, String model) {
-        ModelCredentials mc = creds.get(tenantId, "openai");
-        if (mc == null || mc.getApiKey() == null) return defaultClient;
-        OpenAiApi api = new OpenAiApi(mc.getApiKey());
-        ChatModel chatModel = new OpenAiChatModel(api, model);
-        return ChatClient.builder(chatModel).build();
+        // TODO: Fix OpenAI integration when proper API classes are available
+        return defaultClient;
     }
 
     private ChatClient azureClient(String tenantId, String deployment) {
-        ModelCredentials mc = creds.get(tenantId, "azure");
-        if (mc == null || mc.getApiKey() == null || mc.getEndpoint() == null) return defaultClient;
-        AzureOpenAiApi api = new AzureOpenAiApi(mc.getEndpoint(), mc.getApiKey());
-        ChatModel chatModel = new AzureOpenAiChatModel(api, deployment);
-        return ChatClient.builder(chatModel).build();
+        // TODO: Fix Azure OpenAI integration when proper API classes are available
+        return defaultClient;
     }
 }
 

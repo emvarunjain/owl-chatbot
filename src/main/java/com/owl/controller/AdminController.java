@@ -1,202 +1,278 @@
 package com.owl.controller;
 
-import com.owl.service.QdrantAdminClient;
-import com.owl.service.IngestionService;
-import com.owl.service.DocumentRetrievalService;
-import com.owl.service.ChatMetricsService;
-import com.owl.service.BudgetService;
-import com.owl.security.TenantAuth;
-import com.owl.service.EventPublisher;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
-import com.owl.service.ApiTokenService;
-import org.springframework.ai.document.Document;
-import org.springframework.ai.vectorstore.SearchRequest;
-import org.springframework.ai.vectorstore.VectorStore;
+import com.owl.model.User;
+import com.owl.model.UserRole;
+import com.owl.model.Campaign;
+import com.owl.model.Queue;
+import com.owl.service.UserService;
+import com.owl.service.CampaignService;
+import com.owl.service.QueueService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.*;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @RestController
-@RequestMapping({"/api/v1/admin", "/api/admin"})
+@RequestMapping("/api/admin")
 public class AdminController {
 
-    private final VectorStore vectorStore;
-    private final QdrantAdminClient qdrant;
-    private final IngestionService ingestion;
-    private final ChatMetricsService metrics;
-    private final TenantAuth tenantAuth;
-    private final EventPublisher events;
-    private final BudgetService budgets;
-    private final ApiTokenService apiTokens;
-
-    public AdminController(VectorStore vectorStore, QdrantAdminClient qdrant,
-                           IngestionService ingestion, ChatMetricsService metrics, TenantAuth tenantAuth, EventPublisher events, BudgetService budgets, ApiTokenService apiTokens) {
-        this.vectorStore = vectorStore;
-        this.qdrant = qdrant;
-        this.ingestion = ingestion;
-        this.metrics = metrics;
-        this.tenantAuth = tenantAuth;
-        this.events = events;
-        this.budgets = budgets;
-        this.apiTokens = apiTokens;
-    }
-
-    @GetMapping("/search")
-    public ResponseEntity<List<Map<String, Object>>> search(@RequestParam String tenantId,
-                                                            @RequestParam String q,
-                                                            @RequestParam(defaultValue = "10") int k) {
-        tenantAuth.authorize(tenantId);
-        List<Document> docs = vectorStore.similaritySearch(
-                SearchRequest.builder()
-                        .query(q)
-                        .topK(Math.min(Math.max(k, 1), 100))
-                        .filterExpression("tenantId == '" + tenantId.replace("'","\\'") + "' && type == 'kb'")
-                        .build()
-        );
-        List<Map<String, Object>> out = new ArrayList<>();
-        for (var d : docs) {
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("text", Optional.ofNullable(d.getText()).orElse(""));
-            row.put("metadata", d.getMetadata());
-            out.add(row);
+    @Autowired
+    private UserService userService;
+    
+    @Autowired
+    private CampaignService campaignService;
+    
+    @Autowired
+    private QueueService queueService;
+    
+    // User Management
+    @PostMapping("/users")
+    public ResponseEntity<User> createUser(@RequestBody User user, Authentication auth) {
+        // Check if current user has permission to create users
+        if (!hasAdminPermission(auth)) {
+            return ResponseEntity.forbidden().build();
         }
-        return ResponseEntity.ok(out);
+        
+        User createdUser = userService.createUser(user);
+        return ResponseEntity.ok(createdUser);
     }
-
-    @GetMapping("/sources")
-    public ResponseEntity<Map<String, Object>> sources(@RequestParam String tenantId,
-                                                       @RequestParam(defaultValue = "100") int sample) {
-        tenantAuth.authorize(tenantId);
-        List<Document> docs = vectorStore.similaritySearch(
-                SearchRequest.builder()
-                        .query("introduction overview summary")
-                        .topK(Math.min(Math.max(sample, 1), 500))
-                        .filterExpression("tenantId == '" + tenantId.replace("'","\\'") + "'")
-                        .build()
-        );
-        Set<String> names = new LinkedHashSet<>();
-        for (var d : docs) {
-            var md = d.getMetadata();
-            Object f = md.get("filename"); Object u = md.get("url");
-            names.add(f != null ? f.toString() : (u != null ? u.toString() : "unknown"));
+    
+    @GetMapping("/users")
+    public ResponseEntity<List<User>> getUsers(Authentication auth) {
+        if (!hasAdminPermission(auth)) {
+            return ResponseEntity.forbidden().build();
         }
-        return ResponseEntity.ok(Map.of("tenantId", tenantId, "sources", names, "sampleCount", docs.size()));
+        
+        String tenantId = getTenantId(auth);
+        List<User> users = userService.getUsersByTenant(tenantId);
+        return ResponseEntity.ok(users);
     }
-
-    @DeleteMapping("/purge")
-    public ResponseEntity<Map<String, Object>> purge(@RequestParam String tenantId,
-                                                     @RequestParam String source,
-                                                     @RequestParam(defaultValue = "false") boolean includeCache) {
-        tenantAuth.authorize(tenantId);
-        qdrant.purgeBySource(tenantId, source, includeCache);
-        events.audit(tenantId, actor(), "PURGE", Map.of("source", source, "includeCache", includeCache));
-        return ResponseEntity.ok(Map.of("status", "ok"));
-    }
-
-    @PostMapping("/recrawl")
-    public ResponseEntity<Map<String, Object>> recrawl(@RequestParam String tenantId,
-                                                       @RequestParam String url,
-                                                       @RequestParam(defaultValue = "false") boolean sitemap,
-                                                       @RequestParam(defaultValue = "50") int max) throws Exception {
-        tenantAuth.authorize(tenantId);
-        int count = sitemap ? ingestion.ingestSitemap(tenantId, url, max) : ingestion.ingestHtml(tenantId, url);
-        events.audit(tenantId, actor(), "RECRAWL", Map.of("url", url, "sitemap", sitemap, "ingested", count));
-        return ResponseEntity.ok(Map.of("ingested", count));
-    }
-
-    @GetMapping("/metrics")
-    public ResponseEntity<Map<String, Object>> adminMetrics(@RequestParam String tenantId) {
-        tenantAuth.authorize(tenantId);
-        return ResponseEntity.ok(metrics.snapshot(tenantId));
-    }
-
-    @GetMapping("/cluster-sample")
-    public ResponseEntity<Map<String, Object>> clusterSample(@RequestParam String tenantId,
-                                                             @RequestParam(defaultValue = "200") int sample) {
-        tenantAuth.authorize(tenantId);
-        List<Document> docs = vectorStore.similaritySearch(
-                SearchRequest.builder()
-                        .query("knowledge base faq policy guide")
-                        .topK(Math.min(Math.max(sample, 1), 1000))
-                        .filterExpression("tenantId == '" + tenantId.replace("'","\\'") + "' && type == 'kb'")
-                        .build()
-        );
-        java.util.Map<Long, Integer> buckets = new java.util.HashMap<>();
-        for (var d : docs) {
-            String text = java.util.Optional.ofNullable(d.getText()).orElse("");
-            long h = com.owl.util.TextSimhash.simhash64(text);
-            long key = (h >>> 48); // top 16 bits bucket
-            buckets.put(key, buckets.getOrDefault(key, 0) + 1);
+    
+    @GetMapping("/users/{userId}")
+    public ResponseEntity<User> getUser(@PathVariable String userId, Authentication auth) {
+        if (!hasAdminPermission(auth)) {
+            return ResponseEntity.forbidden().build();
         }
-        return ResponseEntity.ok(java.util.Map.of("tenantId", tenantId, "clusters", buckets, "sample", docs.size()));
+        
+        return userService.getUserById(userId)
+            .map(ResponseEntity::ok)
+            .orElse(ResponseEntity.notFound().build());
     }
-
-    private String actor() {
-        Authentication a = SecurityContextHolder.getContext().getAuthentication();
-        return a == null ? "anonymous" : a.getName();
+    
+    @PutMapping("/users/{userId}")
+    public ResponseEntity<User> updateUser(@PathVariable String userId, @RequestBody User user, Authentication auth) {
+        if (!hasAdminPermission(auth)) {
+            return ResponseEntity.forbidden().build();
+        }
+        
+        User updatedUser = userService.updateUser(userId, user);
+        return ResponseEntity.ok(updatedUser);
     }
-
-    @GetMapping("/usage")
-    public ResponseEntity<Map<String, Object>> usage(@RequestParam String tenantId) {
-        tenantAuth.authorize(tenantId);
-        return ResponseEntity.ok(metrics.snapshot(tenantId));
+    
+    @DeleteMapping("/users/{userId}")
+    public ResponseEntity<Void> deleteUser(@PathVariable String userId, Authentication auth) {
+        if (!hasAdminPermission(auth)) {
+            return ResponseEntity.forbidden().build();
+        }
+        
+        userService.deleteUser(userId);
+        return ResponseEntity.ok().build();
     }
-
-    @GetMapping("/cost")
-    public ResponseEntity<Map<String, Object>> cost(@RequestParam String tenantId) {
-        tenantAuth.authorize(tenantId);
-        return ResponseEntity.ok(budgets.snapshot(tenantId));
+    
+    @PutMapping("/users/{userId}/status")
+    public ResponseEntity<User> updateUserStatus(@PathVariable String userId, @RequestBody Map<String, String> status, Authentication auth) {
+        if (!hasAdminPermission(auth)) {
+            return ResponseEntity.forbidden().build();
+        }
+        
+        User updatedUser = userService.updateAgentStatus(userId, 
+            com.owl.model.AgentStatus.valueOf(status.get("status")));
+        return ResponseEntity.ok(updatedUser);
     }
-
-    public record BudgetRequest(String tenantId, double monthlyBudgetUsd) {}
-
-    @PostMapping("/budget")
-    public ResponseEntity<Map<String, Object>> setBudget(@RequestBody BudgetRequest req) {
-        tenantAuth.authorize(req.tenantId());
-        budgets.setBudget(req.tenantId(), req.monthlyBudgetUsd());
-        return ResponseEntity.ok(budgets.snapshot(req.tenantId()));
+    
+    @PutMapping("/users/{userId}/queues")
+    public ResponseEntity<User> assignUserToQueues(@PathVariable String userId, @RequestBody Set<String> queueIds, Authentication auth) {
+        if (!hasAdminPermission(auth)) {
+            return ResponseEntity.forbidden().build();
+        }
+        
+        User updatedUser = userService.assignToQueues(userId, queueIds);
+        return ResponseEntity.ok(updatedUser);
     }
-
-    public record SettingsRequest(String tenantId, Boolean fallbackEnabled, Boolean guardrailsEnabled) {}
-
-    @PostMapping("/settings")
-    public ResponseEntity<Map<String, Object>> setSettings(@RequestBody SettingsRequest req, com.owl.service.TenantSettingsService settings) {
-        tenantAuth.authorize(req.tenantId());
-        if (req.fallbackEnabled() != null) settings.setFallbackEnabled(req.tenantId(), req.fallbackEnabled());
-        if (req.guardrailsEnabled() != null) settings.setGuardrailsEnabled(req.tenantId(), req.guardrailsEnabled());
-        var s = settings.getOrCreate(req.tenantId());
-        return ResponseEntity.ok(java.util.Map.of(
-                "tenantId", s.getTenantId(),
-                "fallbackEnabled", s.isFallbackEnabled(),
-                "guardrailsEnabled", s.isGuardrailsEnabled()
-        ));
+    
+    @PutMapping("/users/{userId}/campaigns")
+    public ResponseEntity<User> assignUserToCampaigns(@PathVariable String userId, @RequestBody Set<String> campaignIds, Authentication auth) {
+        if (!hasAdminPermission(auth)) {
+            return ResponseEntity.forbidden().build();
+        }
+        
+        User updatedUser = userService.assignToCampaigns(userId, campaignIds);
+        return ResponseEntity.ok(updatedUser);
     }
-
-    public record CreateTokenRequest(String tenantId, String name, java.util.List<String> scopes) {}
-
-    @PostMapping("/tokens")
-    public ResponseEntity<Map<String, Object>> createToken(@RequestBody CreateTokenRequest req) {
-        tenantAuth.authorize(req.tenantId());
-        var created = apiTokens.create(req.tenantId(), req.name(), req.scopes());
-        return ResponseEntity.ok(Map.of("id", created.id(), "token", created.token()));
+    
+    @PutMapping("/users/{userId}/permissions")
+    public ResponseEntity<User> updateUserPermissions(@PathVariable String userId, @RequestBody Set<String> permissions, Authentication auth) {
+        if (!hasAdminPermission(auth)) {
+            return ResponseEntity.forbidden().build();
+        }
+        
+        User updatedUser = userService.updatePermissions(userId, permissions);
+        return ResponseEntity.ok(updatedUser);
     }
-
-    @GetMapping("/tokens")
-    public ResponseEntity<java.util.List<Map<String, Object>>> listTokens(@RequestParam String tenantId) {
-        tenantAuth.authorize(tenantId);
-        var list = apiTokens.list(tenantId).stream().map(t -> Map.of(
-                "id", t.getId(), "name", t.getName(), "scopes", t.getScopes(), "active", t.isActive(),
-                "createdAt", t.getCreatedAt(), "lastUsedAt", t.getLastUsedAt()
-        )).toList();
-        return ResponseEntity.ok(list);
+    
+    // Campaign Management
+    @PostMapping("/campaigns")
+    public ResponseEntity<Campaign> createCampaign(@RequestBody Campaign campaign, Authentication auth) {
+        if (!hasAdminPermission(auth)) {
+            return ResponseEntity.forbidden().build();
+        }
+        
+        campaign.setTenantId(getTenantId(auth));
+        campaign.setCreatedBy(getUserId(auth));
+        
+        Campaign createdCampaign = campaignService.createCampaign(campaign);
+        return ResponseEntity.ok(createdCampaign);
     }
-
-    @DeleteMapping("/tokens/{id}")
-    public ResponseEntity<Map<String, Object>> revoke(@RequestParam String tenantId, @PathVariable String id) {
-        tenantAuth.authorize(tenantId);
-        apiTokens.revoke(tenantId, id);
-        return ResponseEntity.ok(Map.of("status", "revoked"));
+    
+    @GetMapping("/campaigns")
+    public ResponseEntity<List<Campaign>> getCampaigns(Authentication auth) {
+        if (!hasAdminPermission(auth)) {
+            return ResponseEntity.forbidden().build();
+        }
+        
+        String tenantId = getTenantId(auth);
+        List<Campaign> campaigns = campaignService.getCampaignsByTenant(tenantId);
+        return ResponseEntity.ok(campaigns);
+    }
+    
+    @GetMapping("/campaigns/{campaignId}")
+    public ResponseEntity<Campaign> getCampaign(@PathVariable String campaignId, Authentication auth) {
+        if (!hasAdminPermission(auth)) {
+            return ResponseEntity.forbidden().build();
+        }
+        
+        return campaignService.getCampaignById(campaignId)
+            .map(ResponseEntity::ok)
+            .orElse(ResponseEntity.notFound().build());
+    }
+    
+    @PutMapping("/campaigns/{campaignId}")
+    public ResponseEntity<Campaign> updateCampaign(@PathVariable String campaignId, @RequestBody Campaign campaign, Authentication auth) {
+        if (!hasAdminPermission(auth)) {
+            return ResponseEntity.forbidden().build();
+        }
+        
+        Campaign updatedCampaign = campaignService.updateCampaign(campaignId, campaign);
+        return ResponseEntity.ok(updatedCampaign);
+    }
+    
+    @DeleteMapping("/campaigns/{campaignId}")
+    public ResponseEntity<Void> deleteCampaign(@PathVariable String campaignId, Authentication auth) {
+        if (!hasAdminPermission(auth)) {
+            return ResponseEntity.forbidden().build();
+        }
+        
+        campaignService.deleteCampaign(campaignId);
+        return ResponseEntity.ok().build();
+    }
+    
+    @PutMapping("/campaigns/{campaignId}/agents")
+    public ResponseEntity<Campaign> assignAgentsToCampaign(@PathVariable String campaignId, @RequestBody Set<String> agentIds, Authentication auth) {
+        if (!hasAdminPermission(auth)) {
+            return ResponseEntity.forbidden().build();
+        }
+        
+        Campaign updatedCampaign = campaignService.assignAgentsToCampaign(campaignId, agentIds);
+        return ResponseEntity.ok(updatedCampaign);
+    }
+    
+    // Queue Management
+    @PostMapping("/queues")
+    public ResponseEntity<Queue> createQueue(@RequestBody Queue queue, Authentication auth) {
+        if (!hasAdminPermission(auth)) {
+            return ResponseEntity.forbidden().build();
+        }
+        
+        queue.setTenantId(getTenantId(auth));
+        queue.setCreatedBy(getUserId(auth));
+        
+        Queue createdQueue = queueService.createQueue(queue);
+        return ResponseEntity.ok(createdQueue);
+    }
+    
+    @GetMapping("/queues")
+    public ResponseEntity<List<Queue>> getQueues(Authentication auth) {
+        if (!hasAdminPermission(auth)) {
+            return ResponseEntity.forbidden().build();
+        }
+        
+        String tenantId = getTenantId(auth);
+        List<Queue> queues = queueService.getQueuesByTenant(tenantId);
+        return ResponseEntity.ok(queues);
+    }
+    
+    @GetMapping("/queues/{queueId}")
+    public ResponseEntity<Queue> getQueue(@PathVariable String queueId, Authentication auth) {
+        if (!hasAdminPermission(auth)) {
+            return ResponseEntity.forbidden().build();
+        }
+        
+        return queueService.getQueueById(queueId)
+            .map(ResponseEntity::ok)
+            .orElse(ResponseEntity.notFound().build());
+    }
+    
+    @PutMapping("/queues/{queueId}")
+    public ResponseEntity<Queue> updateQueue(@PathVariable String queueId, @RequestBody Queue queue, Authentication auth) {
+        if (!hasAdminPermission(auth)) {
+            return ResponseEntity.forbidden().build();
+        }
+        
+        Queue updatedQueue = queueService.updateQueue(queueId, queue);
+        return ResponseEntity.ok(updatedQueue);
+    }
+    
+    @DeleteMapping("/queues/{queueId}")
+    public ResponseEntity<Void> deleteQueue(@PathVariable String queueId, Authentication auth) {
+        if (!hasAdminPermission(auth)) {
+            return ResponseEntity.forbidden().build();
+        }
+        
+        queueService.deleteQueue(queueId);
+        return ResponseEntity.ok().build();
+    }
+    
+    @PutMapping("/queues/{queueId}/agents")
+    public ResponseEntity<Queue> assignAgentsToQueue(@PathVariable String queueId, @RequestBody Set<String> agentIds, Authentication auth) {
+        if (!hasAdminPermission(auth)) {
+            return ResponseEntity.forbidden().build();
+        }
+        
+        Queue updatedQueue = queueService.assignAgentsToQueue(queueId, agentIds);
+        return ResponseEntity.ok(updatedQueue);
+    }
+    
+    // Helper methods
+    private boolean hasAdminPermission(Authentication auth) {
+        // Check if user has admin or superadmin role
+        return auth.getAuthorities().stream()
+            .anyMatch(authority -> 
+                authority.getAuthority().equals("ROLE_ADMIN") || 
+                authority.getAuthority().equals("ROLE_SUPERADMIN"));
+    }
+    
+    private String getTenantId(Authentication auth) {
+        // Extract tenant ID from authentication
+        // This would depend on your authentication implementation
+        return "default-tenant"; // Simplified for now
+    }
+    
+    private String getUserId(Authentication auth) {
+        // Extract user ID from authentication
+        return auth.getName(); // Simplified for now
     }
 }

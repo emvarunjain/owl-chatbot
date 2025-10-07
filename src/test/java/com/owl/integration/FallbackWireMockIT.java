@@ -74,13 +74,14 @@ public class FallbackWireMockIT {
 
         // Mocks for rest of pipeline
         ChatClient chatClient = mock(ChatClient.class);
-        ChatClient.PromptRequestSpec prompt = mock(ChatClient.PromptRequestSpec.class);
-        ChatClient.ChatResponseSpec cr = mock(ChatClient.ChatResponseSpec.class);
-        when(chatClient.prompt()).thenReturn(prompt);
-        when(prompt.system(anyString())).thenReturn(prompt);
-        when(prompt.user(anyString())).thenReturn(prompt);
-        when(prompt.call()).thenReturn(cr);
-        when(cr.content()).thenReturn("fallback answer");
+        // Spring AI 1.0.0 API - mock the fluent API chain
+        var promptSpec = mock(ChatClient.ChatClientRequestSpec.class);
+        var callSpec = mock(ChatClient.CallResponseSpec.class);
+        when(chatClient.prompt()).thenReturn(promptSpec);
+        when(promptSpec.system(anyString())).thenReturn(promptSpec);
+        when(promptSpec.user(anyString())).thenReturn(promptSpec);
+        when(promptSpec.call()).thenReturn(callSpec);
+        when(callSpec.content()).thenReturn("fallback answer");
 
         DocumentRetrievalService retrieval = mock(DocumentRetrievalService.class);
         when(retrieval.search(anyString(), anyString(), any(), anyInt())).thenReturn(List.of());
@@ -108,7 +109,7 @@ public class FallbackWireMockIT {
         ModelProviderRouter router = mock(ModelProviderRouter.class);
         when(router.chatClientFor(anyString(), any())).thenReturn(chatClient);
         ChatService svc = new ChatService(chatClient, retrieval, cache, history, events, new SimpleMeterRegistry(), chatMetrics,
-                prefs, budgets, promptCache, guardrails, web, settings, quotas, routing, router, 0.45, true, 0.0005, reranker);
+                prefs, budgets, promptCache, guardrails, web, settings, quotas, routing, router, null, 0.45, true, 0.0005, reranker);
 
         ChatRequest.FallbackPolicy fb = new ChatRequest.FallbackPolicy(true, null, 2);
         ChatResponse r = svc.answer(new ChatRequest("acme", "what is x?", false, null, fb));

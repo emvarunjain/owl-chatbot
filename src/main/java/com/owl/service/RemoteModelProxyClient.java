@@ -28,7 +28,8 @@ public class RemoteModelProxyClient {
                 .retrieve()
                 .bodyToMono(Map.class)
                 .block();
-        return String.valueOf(res.getOrDefault("answer", ""));
+        Object answer = res.get("answer");
+        return answer != null ? answer.toString() : "";
     }
 }
 

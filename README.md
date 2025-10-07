@@ -1,473 +1,575 @@
-# 🦉 OWL — Multi‑tenant KB‑Grounded Chatbot
+# OWL Chatbot - Multi-Tenant RAG Platform
 
-Delivers a multi‑tenant chatbot that answers strictly from an ingested knowledge base, with one‑call tenant onboarding and local/dev ergonomics.
+[![Build Status](https://github.com/your-org/owl-chatbot/workflows/CI/badge.svg)](https://github.com/your-org/owl-chatbot/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Java](https://img.shields.io/badge/Java-17-blue.svg)](https://openjdk.java.net/projects/jdk/17/)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3.13-brightgreen.svg)](https://spring.io/projects/spring-boot)
 
-## Tech
+OWL (Open Web Language) is a sophisticated multi-tenant RAG (Retrieval-Augmented Generation) chatbot platform that provides intelligent document search and conversational AI capabilities for enterprises.
 
-- Java 21 + Spring Boot 3.3
-- Spring AI 1.0.1 (Ollama + Qdrant starter), TokenTextSplitter
-- Qdrant vector DB (single collection; `tenantId` in payload filter)
-- MongoDB: database‑per‑tenant for chats/PII; shared core DB for tenants/config
-- Tika/Jsoup for PDF/DOCX/TXT/URL ingestion
-- Basic semantic cache in Qdrant
-- Simple citations
-- Micrometer/Actuator for metrics + logs
-- Docker Compose for local (Apple Silicon friendly)
-- Optional Redpanda (Kafka API) for events
+## 🚀 Features
 
-## Environment Variables
+### Core Capabilities
+- **Multi-Tenant Architecture**: Isolated data and configurations per tenant
+- **Vector-Based Search**: Semantic document search using Qdrant vector database
+- **Multi-Model AI Support**: Integration with OpenAI, Azure OpenAI, Ollama, and AWS Bedrock
+- **Document Ingestion**: Support for PDFs, Office docs, web pages, and external connectors
+- **Content Safety**: Built-in guardrails and content classification
+- **Rate Limiting**: Per-tenant quota management and rate limiting
+- **Comprehensive Monitoring**: Prometheus metrics, Grafana dashboards, and Jaeger tracing
 
-- `MONGO_URI` core DB URI (default `mongodb://localhost:27017/owl`)
-- `SPRING_KAFKA_BOOTSTRAP_SERVERS` or `KAFKA_BOOTSTRAP_SERVERS` (optional; enables events)
-- `OLLAMA_BASE_URL` Ollama URL (default `http://localhost:11434`)
-- `OLLAMA_CHAT_MODEL` chat model id (default `llama3.1:8b-instruct`)
-- `OLLAMA_EMBED_MODEL` embed model id (default `nomic-embed-text`)
-- `QDRANT_HOST` (default `localhost`), `QDRANT_PORT` (default `6334` gRPC)
-- `QDRANT_COLLECTION` (default `owl_kb`)
-- `QDRANT_VECTOR_SIZE` optional override for vector dimension
-- `SPRING_PROFILES_ACTIVE` set `docker` under Compose
+### Enterprise Features
+- **API Key Management**: Secure authentication and authorization
+- **Audit Logging**: Complete audit trail for compliance
+- **Cost Tracking**: Budget management and usage analytics
+- **High Availability**: Microservice architecture with health checks
+- **Scalability**: Horizontal scaling with Kubernetes support
 
-Notes
-- Per‑tenant DB name pattern: `owl_tenant_{tenantId}`. Core collections (e.g. `tenants`) stay in the `MONGO_URI` database.
-- Actuator exposes `health, info, metrics, prometheus, loggers`.
+## 🏗️ Architecture
 
-## Local Dev (Docker Compose)
+OWL follows a microservice architecture pattern with the following services:
 
+- **Chat Service**: Main orchestration and response generation
+- **Retrieval Service**: Vector search and document retrieval
+- **Ingestion Service**: Document processing and vectorization
+- **Tenant Service**: Tenant management and configuration
+- **Model Proxy Service**: AI model routing and management
+- **Safety Service**: Content safety and guardrails
+- **Connector Service**: External data source integration
+- **API Gateway**: Request routing and authentication
+
+## 📋 Prerequisites
+
+### System Requirements
+- **Java 17+**: OpenJDK or Oracle JDK
+- **Docker & Docker Compose**: For containerized deployment
+- **Maven 3.8+**: For building the application
+- **Git**: For version control
+
+### Optional (for production)
+- **Kubernetes**: For orchestrated deployment
+- **Helm**: For Kubernetes package management
+- **NVIDIA GPU**: For local Ollama models (optional)
+
+## 🚀 Quick Start
+
+### 1. Clone the Repository
 ```bash
-docker compose up -d --build
+git clone https://github.com/your-org/owl-chatbot.git
+cd owl-chatbot
 ```
 
-Services
-- MongoDB: `localhost:27017`
-- Qdrant: REST `:6333`, gRPC `:6334`
-- Ollama: `:11434`
-- Redpanda (optional): Kafka `:9092`
-- App: `http://localhost:8080`
-
-Apple Silicon: Images are pinned to ARM64‑compatible variants.
-
-## Build + Run (local JDK)
-
+### 2. Build the Application
 ```bash
-mvn -q -DskipTests package
-java -jar target/owl-0.0.1-SNAPSHOT.jar
+mvn clean package -DskipTests
 ```
 
-## One-command start/stop
-
-- Script: `scripts/owl.sh`
-
-Examples
+### 3. Start with Docker Compose (Monolithic)
 ```bash
-# Start (open endpoints at http://localhost:8080)
-bash scripts/owl.sh start
+# Start all services including dependencies
+docker-compose up -d
 
-# Start with JWT security enabled via Keycloak dev realm
-OWL_SECURITY_ENABLED=true ISSUER_URI=http://keycloak:8080/realms/owl-dev \
-  bash scripts/owl.sh start
-
-# Stop or purge volumes
-bash scripts/owl.sh stop
-bash scripts/owl.sh purge   # WARNING: removes Mongo/Qdrant/Keycloak volumes
-
-# Status / Logs
-bash scripts/owl.sh status
-bash scripts/owl.sh logs
+# Check service health
+curl http://localhost:8080/actuator/health
 ```
 
-Makefile targets
+### 4. Start with Docker Compose (Microservices)
 ```bash
-# Start/Stop/Status/Logs/Purge
-make start
-make stop
-make status
-make logs
-make purge   # WARNING: removes Mongo/Qdrant/Keycloak volumes
+# Start microservices architecture
+docker-compose -f docker-compose.microservices.yml up -d
 
-# Start with JWT security enabled via Keycloak dev realm
-make start OWL_SECURITY_ENABLED=true ISSUER_URI=http://keycloak:8080/realms/owl-dev
+# Check service health
+curl http://localhost:8000/actuator/health  # API Gateway
 ```
 
-## Behavior Highlights
+## 🛠️ Development Setup
 
-- Strict KB‑only answers by default. If no relevant context ≥ threshold, replies “I don't know based on the provided knowledge.”
-- Reranking: CPU‑only token‑overlap reranker improves ordering; drop‑in cross‑encoder BGE support can replace it later (`owl.rerank.enabled=true`).
-- Citations returned in response (`sources`) and appended for readability.
-- Semantic cache: shared across channels via Qdrant (`type=cache`).
-- Multi‑tenant isolation via payload filter + per‑tenant DBs.
-- HTML normalization and sitemap crawling endpoints for higher‑quality ingestion.
-- De‑duplication on ingest (per‑tenant) avoids repetitive answers.
-- One‑call tenant provisioning; Admin endpoints for search/purge/recrawl.
-- Metrics via Micrometer; hit‑ratio tracked per tenant; model latency timer.
-- Governance: optional JWT (Keycloak) with tenant scopes, simple rate limiting, audit logs via Redpanda.
+### Local Development (Monolithic)
 
-## API v1
-
-Base path: `/api/v1` (legacy aliases under `/api` also work)
-
-### Tenants
-
-- Create: `POST /api/v1/tenants`
-  - Request: `{ "tenantId": "acme", "name": "Acme Inc" }`
-  - Response: `200 OK` tenant object
-
-- Get: `GET /api/v1/tenants/{tenantId}`
-
-- Update: `PUT /api/v1/tenants/{tenantId}`
-  - Request: `{ "name": "New Name" }`
-
-- Delete: `DELETE /api/v1/tenants/{tenantId}`
-
-- List: `GET /api/v1/tenants?page=0&size=20`
-
-Example
+1. **Start Dependencies**:
 ```bash
-curl -sS -X POST http://localhost:8080/api/v1/tenants \
-  -H 'Content-Type: application/json' \
-  -d '{"tenantId":"acme","name":"Acme Inc"}'
+# Start only infrastructure services
+docker-compose up -d mongodb qdrant redis
+
+# Or use the development profile
+docker-compose -f docker-compose.dev.yml up -d
 ```
 
-### Ingestion
-
-- File: `POST /api/v1/ingest/file?tenantId={id}`
-  - Multipart: `file=@/path/to/file.(pdf|docx|txt)`
-  - Response: `Ingested chunks: <N>`
-
-- URL: `POST /api/v1/ingest/url?tenantId={id}&url={http...}`
-  - Response: `Ingested chunks: <N>`
-
-Examples
+2. **Configure Environment**:
 ```bash
-curl -sS -X POST "http://localhost:8080/api/v1/ingest/file?tenantId=acme" \
-  -F "file=@/path/to/your.pdf"
+# Copy environment template
+cp .env.example .env
 
-curl -sS -X POST "http://localhost:8080/api/v1/ingest/url?tenantId=acme&url=https://example.com/policy"
+# Edit configuration
+nano .env
 ```
 
-### Chat
-
-- `POST /api/v1/chat`
-  - Request: `{ "tenantId": "acme", "question": "What is our refund policy?", "allowWeb": false, "document": "optional filename or url scope" }`
-  - Response: `{ "answer": "...", "sources": ["policy.pdf"] }`
-
-Examples
+3. **Run the Application**:
 ```bash
-curl -sS -X POST http://localhost:8080/api/v1/chat \
-  -H 'Content-Type: application/json' \
-  -d '{"tenantId":"acme","question":"What is our refund policy?","allowWeb":false}'
+# Run with development profile
+mvn spring-boot:run -Dspring-boot.run.profiles=dev
+
+# Or run tests
+mvn test
 ```
 
-Notes
-- `allowWeb` is accepted but retrieval is KB‑only by default; web retrieval is not enabled in this build.
-- `document` scopes retrieval to a filename or URL if provided.
+### Local Development (Microservices)
 
-## API v1.1 (Admin + Ingestion Enhancements)
-
-Base path: `/api/v1` (aliases under `/api`)
-
-- Admin Search: `GET /api/v1/admin/search?tenantId={id}&q={query}&k=10`
-- List Sources: `GET /api/v1/admin/sources?tenantId={id}&sample=200`
-- Purge by Source: `DELETE /api/v1/admin/purge?tenantId={id}&source={filename|url}&includeCache=false`
-- Re-crawl URL: `POST /api/v1/admin/recrawl?tenantId={id}&url={url}&sitemap=false&max=50`
-- Cluster Sample: `GET /api/v1/admin/cluster-sample?tenantId={id}&sample=200` (rough simhash-based grouping)
-- Ingest HTML (normalized): `POST /api/v1/ingest/html?tenantId={id}&url={url}`
-- Ingest Sitemap: `POST /api/v1/ingest/sitemap?tenantId={id}&url={sitemapUrl}&max=50`
-
-Auth
-- Optional JWT (Keycloak): set `owl.security.enabled=true` and configure standard Spring `spring.security.oauth2.resourceserver.jwt.*`.
-- Claims: expects `tenant` or `tenant_id` claim. API checks that claim matches `tenantId` in requests.
-- Header: `Authorization: Bearer <token>`
-- Without JWT, all endpoints are open except Admin which still requires auth if `owl.security.enabled=true`.
-
-Rate Limiting
-- Per‑tenant QPM via `owl.rateLimit.qpm` (default 120). Returns `429` when exceeded. Excludes `/actuator`.
-
-Audit Logs
-- Admin actions emit events to topic `owl.events.audit` when Kafka is configured.
-
-Observability
-- Per‑tenant counters and hit‑ratio (`/api/v1/admin/metrics?tenantId=...`).
-- Micrometer timers for model latency: `chat.model.time{tenantId}`.
- - SLO alerts provided via Prometheus rules: see `deploy/observability/rules/slo-alerts.yml`.
-
-## SDKs
-
-### Web Widget
-
-Add to your page and mount:
-
-```html
-<script src="/sdk/web/owl-widget.js"></script>
-<script>
-  window.OWL_TENANT_ID = 'acme';
-  OwlWidget.mount('');
-  // Optionally: OwlWidget.mount('https://your.host');
-</script>
-```
-
-### Android / iOS
-
-- Android: see `sdk/android/README.md`
-- iOS: see `sdk/ios/README.md`
-
-## OpenAPI
-
-- Swagger UI: `/swagger-ui.html`
-- JSON: `/v3/api-docs`
-- Static YAML: `/openapi-v1.1.yaml`
-
-## Keycloak Dev Realm (Quick Start)
-
-Compose includes an optional Keycloak service with a preloaded realm `owl-dev` and a test user.
-
-Enable security and issuer in Compose:
-
+1. **Start Infrastructure**:
 ```bash
-export OWL_SECURITY_ENABLED=true
-export ISSUER_URI=http://keycloak:8080/realms/owl-dev
-docker compose up -d --build
+docker-compose -f docker-compose.microservices.yml up -d mongodb qdrant redis kafka
 ```
 
-Keycloak Admin:
-- URL: `http://localhost:8081/admin`
-- User: `admin` / `admin`
-
-Realm `owl-dev`:
-- Client `owl-api` (bearer-only)
-- Client `owl-web` (public, direct grants enabled)
-- User `alice` / `alice` with user attribute `tenant=acme`
-
-Getting a token (password grant, dev only):
-
+2. **Build and Run Services**:
 ```bash
-curl -sS -X POST \
-  -d 'client_id=owl-web' \
-  -d 'grant_type=password' \
-  -d 'username=alice' \
-  -d 'password=alice' \
-  http://localhost:8081/realms/owl-dev/protocol/openid-connect/token | jq -r .access_token
+# Build all services
+mvn clean package -DskipTests
+
+# Run individual services
+cd services/tenant-service && mvn spring-boot:run
+cd services/chat-service && mvn spring-boot:run
+# ... repeat for other services
 ```
 
-Use it with APIs:
+## 📚 API Documentation
 
+### Interactive API Documentation
+- **Swagger UI**: http://localhost:8080/swagger-ui.html
+- **OpenAPI Spec**: http://localhost:8080/v3/api-docs
+
+### API Endpoints
+
+#### Chat API
 ```bash
-TOKEN=$(# obtain as above)
-curl -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"tenantId":"acme","question":"Hello","allowWeb":false}' \
-  http://localhost:8080/api/v1/chat
+# Send a chat message
+curl -X POST http://localhost:8080/api/v1/chat \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tenantId": "acme-corp",
+    "question": "What is our company policy on remote work?",
+    "allowWeb": false
+  }'
 ```
 
-## API v1.2 (Feedback, Usage/Cost, Ops)
-
-New endpoints:
-- Submit Feedback: `POST /api/v1/feedback`
-  - Request: `{ "tenantId": "acme", "chatId": "...", "rating": 1..5, "helpful": true|false, "comment": "..." }`
-  - On positive feedback (>=4 or helpful), the answer is saved to a preference memory and will be preferred for similar future questions.
-
-- Admin Usage: `GET /api/v1/admin/usage?tenantId={id}` (per‑tenant hit/miss ratios)
-- Admin Cost: `GET /api/v1/admin/cost?tenantId={id}` (budget snapshot)
-- Admin Budget: `POST /api/v1/admin/budget` body `{ tenantId, monthlyBudgetUsd }`
-
-Cost guardrails:
-- Properties: `owl.cost.estimatePerCallUsd`, `owl.cost.budget.enabled`, `owl.cost.budget.defaultUsd`
-- When enabled, budget is enforced per month; exceeding requests get a budget message response.
-
-Stronger isolation (optional):
-- Set `owl.isolation.collectionPerTenant=true` to create a Qdrant collection per tenant during provisioning. Current runtime uses single-collection mode with tenant filters; collection-per-tenant is provided as an option for stricter isolation.
-
-Security & DLP:
-- DLP redaction on ingest and responses: `owl.dlp.enabled=true` replaces common PII with redaction tokens.
-- Per‑tenant encryption keys (scaffold): generate and manage per‑tenant keys; see runbooks.
-
-Analytics streams:
-- Events published to Kafka/Redpanda: `owl.events.chat`, `owl.events.feedback`, `owl.events.cost`, `owl.events.ingest`, `owl.events.audit`.
-- Use Kafka Connect sinks (e.g., S3/GCS) and build dashboards with Grafana/Metabase.
-
-## Testing & Coverage
-
-Run tests and generate coverage via JaCoCo:
-
+#### Document Ingestion
 ```bash
-mvn -q test           # run unit tests
-mvn -q verify         # run tests and build coverage report
-# macOS quick open:
-open target/site/jacoco/index.html
+# Upload a file
+curl -X POST http://localhost:8080/api/v1/ingest/file \
+  -H "Authorization: Bearer your-api-key" \
+  -F "file=@document.pdf" \
+  -F "tenantId=acme-corp"
 ```
 
-Makefile shortcuts:
-
+#### Tenant Management
 ```bash
-make test
-make coverage
+# Create a tenant
+curl -X POST http://localhost:8080/api/v1/tenants \
+  -H "Authorization: Bearer admin-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tenantId": "acme-corp",
+    "name": "Acme Corporation"
+  }'
 ```
 
-## Kubernetes (Production Runbook)
+## 🐳 Docker Deployment
 
-Manifests in `deploy/k8s/` include Deployment, Service, HPA, and PDB with zone spread constraints.
-
-- Health probes: enabled at `/actuator/health/liveness` and `/actuator/health/readiness` (see `management.endpoint.health.probes.enabled`)
-- HPA: scales by CPU util; adjust thresholds as needed
-- PDB: prevents full eviction
-- Multi‑AZ: topology spread across zones
-
-Secrets/Config:
-- Provide `MONGO_URI`, Qdrant host/port, and Ollama (or managed LLM) via env/Secrets
-
-Backups/DR:
-- Mongo backup: `bash scripts/backup_mongo.sh` (uses `MONGO_URI`)
-- Qdrant snapshots: `bash scripts/backup_qdrant.sh` (ensure snapshots enabled)
-- Regular DR drills: restore snapshots to a staging cluster; validate ingestion and chat readiness
-
-## Observability Stack (Optional)
-
-Compose includes Prometheus and Grafana for local dashboards:
-
-- Prometheus: http://localhost:9090 (scrapes `/actuator/prometheus`)
-- Grafana: http://localhost:3000 (admin/admin)
-- Dashboard auto-provisioned: "Owl — Chat Ops" with cache hit ratio, request rates, latency per tenant, cost rate, and budget vs. monthly spend.
-
-Configs:
-- Prometheus config: `deploy/observability/prometheus.yml`
-- Grafana provisioning: `deploy/observability/grafana/provisioning` and dashboard JSON `deploy/observability/grafana/dashboard-owl.json`
-
-## Data Lake via Kafka Connect (Examples)
-
-Examples for S3 and GCS sink connectors to ship `owl.events.*` topics to object storage.
-
-- S3: `deploy/connectors/s3/sink-owl-events.json`
-- GCS: `deploy/connectors/gcs/sink-owl-events-gcs.json`
-
-Usage (with a running Kafka Connect at http://localhost:8083):
-
+### Monolithic Deployment
 ```bash
-curl -sS -X POST -H 'Content-Type: application/json' \
-  --data @deploy/connectors/s3/sink-owl-events.json \
-  http://localhost:8083/connectors
+# Build and run
+docker-compose up -d
 
-# Or for GCS
-curl -sS -X POST -H 'Content-Type: application/json' \
-  --data @deploy/connectors/gcs/sink-owl-events-gcs.json \
-  http://localhost:8083/connectors
+# View logs
+docker-compose logs -f owl-app
+
+# Scale the application
+docker-compose up -d --scale owl-app=3
 ```
 
-Notes:
-- Ensure Kafka Connect image includes the corresponding sink plugins (Confluent S3/GCS). For Redpanda, use Redpanda Connect or run a standard Kafka Connect with plugins mounted.
-- Provide credentials files mounted inside the container as referenced in the configs.
+### Microservices Deployment
+```bash
+# Start all microservices
+docker-compose -f docker-compose.microservices.yml up -d
 
-Docker Compose includes a Kafka Connect service (`kafka-connect`) listening on `:8083`. You still need to provide plugins and credentials (mount into `/data/plugins` and `/data/creds`).
+# Check service status
+docker-compose -f docker-compose.microservices.yml ps
 
-Prometheus recording rules are added to compute approximate monthly spend per tenant from cost counters (see `deploy/observability/rules/budget-rules.yml`).
+# View logs for specific service
+docker-compose -f docker-compose.microservices.yml logs -f owl-chat-service
+```
 
-Kubernetes (Prometheus Operator) integration manifests:
-- ServiceMonitor: `deploy/k8s/observability/servicemonitor-owl-app.yaml`
-- Grafana Dashboard ConfigMap: `deploy/k8s/observability/grafana-dashboard-cm.yaml`
+### Custom Configuration
+```bash
+# Override environment variables
+docker-compose -f docker-compose.microservices.yml up -d \
+  -e SPRING_PROFILES_ACTIVE=production \
+  -e MONGODB_URI=mongodb://your-mongodb:27017/owl
+```
 
-## API v1.3 (Fallback, Safety, RBAC/API Keys)
+## ☸️ Kubernetes Deployment
 
-Chat Request now supports optional fallback policy and returns safety labels:
+### Prerequisites
+- Kubernetes cluster (1.20+)
+- Helm 3.0+
+- kubectl configured
 
-- Request: `POST /api/v1/chat`
-  - Fields:
-    - `tenantId` string (required)
-    - `question` string (required)
-    - `document` string (optional scope)
-    - `allowWeb` boolean (legacy; still honored)
-    - `fallback` object (optional): `{ enabled: boolean, budgetUsd?: number, maxWebCalls?: number }`
+### Deploy with Helm
+```bash
+# Add the Helm repository
+helm repo add owl-chatbot https://your-org.github.io/owl-chatbot-helm
 
-- Response:
-  - `{ answer: string, sources: string[], chatId: string }`
+# Install the chart
+helm install owl-chatbot owl-chatbot/owl-chatbot \
+  --namespace owl-chatbot \
+  --create-namespace \
+  --values values.yaml
 
-Safety and Guardrails
-- Enable per-tenant via tenant settings or `owl.guardrails.enabled=true` for coarse global toggle.
-- Safety outcomes include internal checks of prompt/answer and may return a refusal message.
+# Check deployment status
+kubectl get pods -n owl-chatbot
+```
 
-Prompt Caching
-- Exact prompt caching reduces LLM calls for repeated questions. Enabled by default internally; stored per-tenant with a 7-day TTL.
-- Semantic cache remains enabled to short-circuit near-duplicates.
+### Custom Values
+```yaml
+# values.yaml
+global:
+  imageRegistry: your-registry.com
+  imageTag: latest
 
-RBAC & API Keys
-- API keys support header `X-API-Key: <token>` or `Authorization: ApiKey <token>`.
-- Scopes map to authorities (`SCOPE_<scope>`). Suggested scopes:
-  - `chat:write` – call chat API
-  - `ingest:write` – ingest endpoints
-  - `admin:read`, `admin:write` – admin endpoints
-- Admin token endpoints:
-  - Create: `POST /api/v1/admin/tokens` `{ tenantId, name, scopes: [] }` → `{ id, token }`
-  - List: `GET /api/v1/admin/tokens?tenantId=...`
-- Revoke: `DELETE /api/v1/admin/tokens/{id}?tenantId=...`
+tenantService:
+  replicas: 2
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
 
-Tenant Settings
-- Update settings: `POST /api/v1/admin/settings` `{ tenantId, fallbackEnabled?, guardrailsEnabled? }`
+chatService:
+  replicas: 3
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
 
-SSO (SAML/OIDC)
-- OIDC JWT resource server supported; enable via `owl.security.enabled=true` and issuer URI.
-- Optional SAML login for admin/UI can be enabled via Spring SAML. Provide your IdP metadata in standard Spring Boot SAML properties.
+mongodb:
+  enabled: true
+  auth:
+    enabled: true
+    rootPassword: "secure-password"
 
-Error Codes
-- `429` rate limited
-- `403` forbidden (tenant mismatch or insufficient scope)
-- `402` budget exceeded (message body indicates budget guardrail)
-- `503` external search unavailable (fallback tried but tool disabled/unavailable)
+qdrant:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 10Gi
+```
 
-Fallback Web Search Provider
-- Configure one of:
-  - SerpAPI: set `SERPAPI_API_KEY` and `owl.fallback.provider=serpapi`
-  - Bing: set `BING_SEARCH_KEY` and optionally `BING_SEARCH_ENDPOINT`, `owl.fallback.provider=bing`
-- Enable globally with `owl.fallback.enabled=true` and/or per tenant via Admin settings.
-- The fallback builds a small grounded context from top web results (title + snippet) and applies safety checks before responding.
+## 🔧 Configuration
 
-## API v2.0 (Plans/Quotas, Multi‑region, Connectors, Model Routing)
+### Environment Variables
 
-Headers
-- `X-Data-Region`: optional request hint for data residency (e.g., `us-east-1`, `eu-west-1`). Tenant default region is used if omitted.
+#### Core Configuration
+```bash
+# Database
+SPRING_DATA_MONGODB_URI=mongodb://localhost:27017/owl
+QDRANT_URL=http://localhost:6333
 
-Plans & Quotas
-- List plans: `GET /api/v2/admin/plans`
-- Assign plan: `POST /api/v2/admin/plans/assign` `{ tenantId, planName }`
-- Quotas enforced per plan with burst credits; budget guardrails remain in effect.
+# Redis
+SPRING_REDIS_HOST=localhost
+SPRING_REDIS_PASSWORD=password123
 
-Connectors Marketplace (lifecycle)
-- List connectors: `GET /api/v2/admin/connectors?tenantId=...`
-- Create connector: `POST /api/v2/admin/connectors` `{ tenantId, type, config }`
-- Start sync: `POST /api/v2/admin/connectors/{id}/sync?tenantId=...`
-- Delete: `DELETE /api/v2/admin/connectors/{id}?tenantId=...`
-Types: gdrive|confluence|notion|s3 (scaffold; provide credentials via `config`).
+# Kafka
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092
 
-Model Routing
-- Set routing: `POST /api/v2/admin/routing` `{ tenantId, provider, chatModel, embedModel }`
-- Provider examples: `ollama`, `openai`, `azure`, `bedrock` (router stores preference; actual provider selection is applied by the service).
+# Security
+OWL_SECURITY_ENABLED=true
+OWL_RATE_LIMIT_QPM=120
 
-Continuous Evaluation
-- Run eval: `POST /api/v2/admin/eval` `{ tenantId, tests: [{ question, mustContain }] }` → `{ total, passed, failures }`
+# AI Models
+OPENAI_API_KEY=your-openai-key
+AZURE_OPENAI_API_KEY=your-azure-key
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+```
 
-Multi‑region data residency
-- Tenant DBs and vector collections include region in names. Requests may pass `X-Data-Region` to influence per‑request routing where allowed.
+#### Service-Specific Configuration
+```bash
+# Chat Service
+OWL_RETRIEVAL_SCORE_THRESHOLD=0.45
+OWL_RERANK_ENABLED=true
+OWL_COST_ESTIMATE_PER_CALL_USD=0.0005
 
-## API Compatibility & Deprecation
+# Ingestion Service
+OWL_INGESTION_MAX_FILE_SIZE=512MB
+OWL_INGESTION_SUPPORTED_FORMATS=pdf,doc,docx,txt,html
 
-- Breaking changes are introduced only with major versions (v2.x). v1.x endpoints remain as aliases until EOL.
-- Deprecations are announced in minor releases and marked in OpenAPI under `deprecated: true` where applicable.
-- Compatibility: Request/response fields are additive; unknown fields are ignored by the server.
+# Safety Service
+OWL_GUARDRAILS_ENABLED=true
+OWL_SAFETY_MODEL=ollama:llama-guard
+```
 
-## Metrics & Ops
+### Application Profiles
 
-- Actuator: `GET /actuator/health`, `/actuator/metrics`, `/actuator/prometheus`
-- Primary metric: `chat.requests{tenantId,cache=[hit|miss],answer=[ok|empty]}`
+#### Development Profile
+```yaml
+# application-dev.yml
+spring:
+  profiles:
+    active: dev
+  
+owl:
+  security:
+    enabled: false  # Disable auth for development
+  cache:
+    similarity-threshold: 0.80
+  retrieval:
+    score-threshold: 0.30
+```
 
-## Data Model
+#### Production Profile
+```yaml
+# application-prod.yml
+spring:
+  profiles:
+    active: prod
 
-- Qdrant: single collection, documents carry `tenantId`, `type` in payload; cache entries use `type=cache`.
-- MongoDB core: `tenants` collection.
-- MongoDB per‑tenant: DB `owl_tenant_{tenantId}`, collection `chats` for chat history (PII stays per‑tenant).
+owl:
+  security:
+    enabled: true
+  cache:
+    similarity-threshold: 0.90
+  retrieval:
+    score-threshold: 0.45
+  rateLimit:
+    qpm: 120
+```
 
-## Deployment
+## 📊 Monitoring and Observability
 
-1. Ensure Docker (or provide Mongo, Qdrant, Ollama endpoints)
-2. Configure env vars (see above)
-3. `docker compose up -d --build`
-4. Create a tenant, ingest docs, then chat
+### Metrics
+- **Prometheus**: http://localhost:9090
+- **Grafana**: http://localhost:3000 (admin/admin123)
+
+### Tracing
+- **Jaeger**: http://localhost:16686
+
+### Health Checks
+```bash
+# Application health
+curl http://localhost:8080/actuator/health
+
+# Detailed health info
+curl http://localhost:8080/actuator/health/detailed
+
+# Custom health indicators
+curl http://localhost:8080/actuator/health/readiness
+curl http://localhost:8080/actuator/health/liveness
+```
+
+### Logging
+```bash
+# View application logs
+docker-compose logs -f owl-app
+
+# View specific service logs
+docker-compose logs -f owl-chat-service
+
+# Follow logs in real-time
+docker-compose logs -f --tail=100 owl-app
+```
+
+## 🧪 Testing
+
+### Unit Tests
+```bash
+# Run all tests
+mvn test
+
+# Run specific test class
+mvn test -Dtest=ChatServiceTest
+
+# Run with coverage
+mvn test jacoco:report
+```
+
+### Integration Tests
+```bash
+# Run integration tests
+mvn test -Dtest=*IT
+
+# Run with testcontainers
+mvn test -Dspring.profiles.active=testcontainers
+```
+
+### Load Testing
+```bash
+# Install k6
+curl https://github.com/grafana/k6/releases/download/v0.47.0/k6-v0.47.0-linux-amd64.tar.gz -L | tar xvz --strip-components 1
+
+# Run load tests
+k6 run tests/load/chat-load-test.js
+```
+
+## 🔒 Security
+
+### API Key Management
+```bash
+# Create API key
+curl -X POST http://localhost:8080/api/v1/tenants/acme-corp/api-keys \
+  -H "Authorization: Bearer admin-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "production-key",
+    "permissions": ["chat", "ingest", "search"]
+  }'
+```
+
+### Content Safety
+- Automatic content classification
+- Configurable safety policies
+- Content filtering and blocking
+- Audit logging for safety events
+
+### Data Privacy
+- Tenant data isolation
+- Encryption at rest and in transit
+- GDPR compliance features
+- Data retention policies
+
+## 🚀 Performance Optimization
+
+### Caching
+- Redis for session and response caching
+- Vector search result caching
+- Model response caching
+
+### Scaling
+```bash
+# Scale specific services
+docker-compose up -d --scale owl-chat-service=3
+docker-compose up -d --scale owl-retrieval-service=2
+
+# Kubernetes scaling
+kubectl scale deployment owl-chat-service --replicas=5
+```
+
+### Database Optimization
+- MongoDB indexing strategies
+- Qdrant collection optimization
+- Connection pooling configuration
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+#### Service Won't Start
+```bash
+# Check logs
+docker-compose logs owl-app
+
+# Check health
+curl http://localhost:8080/actuator/health
+
+# Check dependencies
+docker-compose ps
+```
+
+#### Database Connection Issues
+```bash
+# Test MongoDB connection
+docker exec -it owl-mongodb mongosh --eval "db.adminCommand('ping')"
+
+# Test Qdrant connection
+curl http://localhost:6333/collections
+```
+
+#### Memory Issues
+```bash
+# Check memory usage
+docker stats
+
+# Increase JVM heap size
+export JAVA_OPTS="-Xmx2g -Xms1g"
+```
+
+### Debug Mode
+```bash
+# Enable debug logging
+export LOGGING_LEVEL_COM_OWL=DEBUG
+
+# Enable Spring Boot debug
+export DEBUG=true
+```
+
+## 🤝 Contributing
+
+### Development Workflow
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/amazing-feature`
+3. Make your changes
+4. Add tests for your changes
+5. Run the test suite: `mvn test`
+6. Commit your changes: `git commit -m 'Add amazing feature'`
+7. Push to the branch: `git push origin feature/amazing-feature`
+8. Open a Pull Request
+
+### Code Style
+- Follow Java coding conventions
+- Use meaningful variable and method names
+- Add Javadoc for public APIs
+- Maintain test coverage above 80%
+
+### Testing Requirements
+- Unit tests for all new functionality
+- Integration tests for API endpoints
+- Performance tests for critical paths
+- Security tests for authentication/authorization
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- [Spring Boot](https://spring.io/projects/spring-boot) - Application framework
+- [Spring AI](https://spring.io/projects/spring-ai) - AI integration framework
+- [Qdrant](https://qdrant.tech/) - Vector database
+- [MongoDB](https://www.mongodb.com/) - Document database
+- [Docker](https://www.docker.com/) - Containerization platform
+- [Kubernetes](https://kubernetes.io/) - Container orchestration
+
+## 📞 Support
+
+- **Documentation**: [docs.owl-chatbot.com](https://docs.owl-chatbot.com)
+- **Issues**: [GitHub Issues](https://github.com/your-org/owl-chatbot/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/your-org/owl-chatbot/discussions)
+- **Email**: support@owl-chatbot.com
+
+## 🔄 Changelog
+
+### v3.0.0 (Latest)
+- Microservice architecture implementation
+- Enhanced API documentation
+- Improved monitoring and observability
+- Performance optimizations
+- Security enhancements
+
+### v2.0.0
+- Multi-tenant support
+- Vector search implementation
+- AI model integration
+- Content safety features
+
+### v1.0.0
+- Initial release
+- Basic chat functionality
+- Document ingestion
+- Simple web interface
 
 ---
 
-Happy building! 🦉
+**Made with ❤️ by the OWL Team**

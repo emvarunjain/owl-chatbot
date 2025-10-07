@@ -20,13 +20,13 @@ class DocumentRetrievalServiceTest {
         when(store.similaritySearch(any(SearchRequest.class))).thenReturn(List.of());
         TenantVectorService router = mock(TenantVectorService.class);
         doThrow(new UnsupportedOperationException()).when(router).search(anyString(), anyString(), any(), anyInt());
-        DocumentRetrievalService svc = new DocumentRetrievalService(store, router);
+        DocumentRetrievalService svc = new DocumentRetrievalService(store, router, null);
 
         svc.search("acme", "q", null, 3);
 
         ArgumentCaptor<SearchRequest> cap = ArgumentCaptor.forClass(SearchRequest.class);
         verify(store).similaritySearch(cap.capture());
-        assertTrue(cap.getValue().getFilterExpression().contains("tenantId == 'acme'"));
+        assertTrue(cap.getValue().getFilterExpression().toString().contains("tenantId == 'acme'"));
     }
 
     @Test
@@ -36,7 +36,7 @@ class DocumentRetrievalServiceTest {
         when(store.similaritySearch(any(SearchRequest.class))).thenReturn(List.of(d));
         TenantVectorService router = mock(TenantVectorService.class);
         doThrow(new UnsupportedOperationException()).when(router).search(anyString(), anyString(), any(), anyInt());
-        DocumentRetrievalService svc = new DocumentRetrievalService(store, router);
+        DocumentRetrievalService svc = new DocumentRetrievalService(store, router, null);
 
         var res = svc.search("acme", "q", "file.pdf", 2);
         assertEquals(1, res.size());
@@ -44,7 +44,7 @@ class DocumentRetrievalServiceTest {
 
         ArgumentCaptor<SearchRequest> cap = ArgumentCaptor.forClass(SearchRequest.class);
         verify(store).similaritySearch(cap.capture());
-        String f = cap.getValue().getFilterExpression();
+        String f = cap.getValue().getFilterExpression().toString();
         assertTrue(f.contains("tenantId == 'acme'"));
         assertTrue(f.contains("filename == 'file.pdf'"));
         assertTrue(f.contains("url == 'file.pdf'"));

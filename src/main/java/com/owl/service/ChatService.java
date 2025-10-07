@@ -129,7 +129,7 @@ public class ChatService {
         ChatClient chatToUse = (modelRouter != null) ? modelRouter.chatClientFor(tenantId, sel) : chatClient;
         if (cachedPrompt != null) {
             String chatId = historyService.save(tenantId, query, cachedPrompt, true, List.of());
-            return new ChatResponse(cachedPrompt, List.of(), chatId);
+            return new ChatResponse(cachedPrompt, List.of(), chatId, null);
         }
 
         // 2b) Preference memory (highly-rated past answers)
@@ -140,7 +140,7 @@ public class ChatService {
             String chatId = historyService.save(tenantId, query, ans, true, noSources);
             events.chat(tenantId, query, true);
             metrics.counter("chat.requests", "tenantId", tenantId, "cache", "pref").increment();
-            return new ChatResponse(ans, noSources, chatId);
+            return new ChatResponse(ans, noSources, chatId, null);
         }
 
         // 3) Retrieval (vector search; per-tenant)
@@ -212,7 +212,7 @@ public class ChatService {
         if (!budgets.allowSpend(tenantId, costPerCallUsd)) {
             String msg = "Budget exceeded for this tenant. Please try later.";
             String chatId = historyService.save(tenantId, query, msg, false, List.of());
-            return new ChatResponse(msg, List.of(), chatId);
+            return new ChatResponse(msg, List.of(), chatId, null);
         }
 
         // 7) Call the model via the fluent ChatClient API

@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.ArrayList;
+// import java.util.Collections; // unused
 import java.util.List;
 import java.util.Map;
 
@@ -36,7 +37,9 @@ public class RemoteRetrievalClient {
                 .retrieve()
                 .bodyToMono(Map.class)
                 .block();
-        List<Map<String, Object>> docs = (List<Map<String, Object>>) res.getOrDefault("docs", List.of());
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> docs = (List<Map<String, Object>>) res.get("docs");
+        if (docs == null) docs = new ArrayList<>();
         List<Document> out = new ArrayList<>();
         for (var d : docs) {
             String text = (String) d.getOrDefault("text", "");

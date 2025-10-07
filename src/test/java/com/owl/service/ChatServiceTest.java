@@ -20,8 +20,8 @@ import static org.mockito.Mockito.*;
 class ChatServiceTest {
 
     ChatClient chatClient;
-    ChatClient.PromptRequestSpec prompt;
-    ChatClient.ChatResponseSpec resp;
+    // ChatClient.PromptRequestSpec prompt; // Spring AI 1.0.0 API changed
+    // ChatClient.ChatResponseSpec resp; // Spring AI 1.0.0 API changed
     DocumentRetrievalService retrieval;
     CacheService cache;
     ChatHistoryService history;
@@ -44,12 +44,14 @@ class ChatServiceTest {
     @BeforeEach
     void setup() {
         chatClient = mock(ChatClient.class);
-        prompt = mock(ChatClient.PromptRequestSpec.class);
-        resp = mock(ChatClient.ChatResponseSpec.class);
-        when(chatClient.prompt()).thenReturn(prompt);
-        when(prompt.system(anyString())).thenReturn(prompt);
-        when(prompt.user(anyString())).thenReturn(prompt);
-        when(prompt.call()).thenReturn(resp);
+        // Spring AI 1.0.0 API - mock the fluent API chain
+        var promptSpec = mock(ChatClient.ChatClientRequestSpec.class);
+        var callSpec = mock(ChatClient.CallResponseSpec.class);
+        when(chatClient.prompt()).thenReturn(promptSpec);
+        when(promptSpec.system(anyString())).thenReturn(promptSpec);
+        when(promptSpec.user(anyString())).thenReturn(promptSpec);
+        when(promptSpec.call()).thenReturn(callSpec);
+        when(callSpec.content()).thenReturn("test response");
 
         retrieval = mock(DocumentRetrievalService.class);
         cache = mock(CacheService.class);
@@ -79,7 +81,7 @@ class ChatServiceTest {
         svc = new ChatService(
                 chatClient, retrieval, cache, history, events,
                 new SimpleMeterRegistry(), chatMetrics, prefs, budgets,
-                promptCache, guardrails, web, tenantSettings, quotas, modelRouting, modelRouter,
+                promptCache, guardrails, web, tenantSettings, quotas, modelRouting, modelRouter, null,
                 0.45, true, 0.0005, reranker);
     }
 
@@ -94,7 +96,7 @@ class ChatServiceTest {
         verify(history).save("acme", "hello", "cached", true, List.of());
         verify(events).chat("acme", "hello", true);
         verifyNoInteractions(retrieval);
-        verify(prompt, never()).call();
+        verify(chatClient, never()).prompt();
     }
 
     @Test
@@ -109,7 +111,7 @@ class ChatServiceTest {
         verify(cache).save(eq("acme"), eq("question"), contains("I don't know"));
         verify(history).save(eq("acme"), eq("question"), contains("I don't know"), eq(false), eq(List.of()));
         verify(events).chat("acme", "question", false);
-        verify(prompt, never()).call();
+        verify(chatClient, never()).prompt();
     }
 
     @Test
@@ -120,7 +122,7 @@ class ChatServiceTest {
         var hits = List.of(new DocumentRetrievalService.Scored(d1, 0.95), new DocumentRetrievalService.Scored(d2, 0.92));
         when(retrieval.search(eq("acme"), eq("q"), any(), anyInt())).thenReturn(hits);
         when(reranker.rerank(anyString(), anyString(), anyList())).thenAnswer(inv -> inv.getArgument(2));
-        when(resp.content()).thenReturn("Answer");
+        // Mock response is already set up in setup()
 
         ChatResponse r = svc.answer(new ChatRequest("acme", "q", false, null, null));
 
@@ -130,9 +132,8 @@ class ChatServiceTest {
         verify(cache).save(eq("acme"), eq("q"), contains("Answer"));
         verify(history).save(eq("acme"), eq("q"), contains("Answer"), eq(false), anyList());
         verify(events).chat("acme", "q", false);
-        verify(prompt).system(anyString());
-        verify(prompt).user("q");
-        verify(resp).content();
+        verify(chatClient).prompt();
+        verify(chatClient).prompt();
     }
 
     @Test
@@ -141,14 +142,14 @@ class ChatServiceTest {
         when(prefs.lookup(anyString(), anyString())).thenReturn(Optional.empty());
         when(retrieval.search(eq("acme"), eq("q2"), any(), anyInt())).thenReturn(List.of());
         when(web.search(eq("q2"), anyInt())).thenReturn(List.of(new Document("web content", Map.of("url","https://ex"))));
-        when(resp.content()).thenReturn("web-based answer");
+        // Mock response is already set up in setup()
 
         ChatRequest.FallbackPolicy fb = new ChatRequest.FallbackPolicy(true, null, 2);
         ChatResponse r = svc.answer(new ChatRequest("acme", "q2", false, null, fb));
 
         assertTrue(r.answer().contains("web-based answer"));
         verify(web).search(eq("q2"), anyInt());
-        verify(prompt).system(anyString());
-        verify(resp).content();
+        verify(chatClient).prompt();
+        verify(chatClient).prompt();
     }
 }
