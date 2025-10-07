@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "retrieval-service.fullname" . }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "retrieval-service.fullname" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "retrieval-service.fullname" . }}
+    spec:
+      containers:
+        - name: retrieval
+          image: {{ .Values.image }}
+          ports:
+            - containerPort: 9090
+          env:
+            - name: QDRANT_HOST
+              value: {{ .Values.qdrant.host | quote }}
+            - name: QDRANT_PORT
+              value: {{ .Values.qdrant.port | quote }}
+            - name: OLLAMA_BASE_URL
+              value: {{ .Values.ollama.baseUrl | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "retrieval-service.fullname" . }}
+spec:
+  selector:
+    app: {{ include "retrieval-service.fullname" . }}
+  ports:
+    - port: 9090
+      targetPort: 9090

@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kong.fullname" . }}-config
+data:
+  kong.yml: |
+    _format_version: "3.0"
+    services:
+{{- range $name, $route := .Values.routes }}
+      - name: {{ $name }}
+        url: {{ $route.url | quote }}
+        routes:
+          - name: {{ $name }}-route
+            paths: {{ toJson $route.paths }}
+{{- end }}
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 120
+          policy: local
+{{- if .Values.oidc.enabled }}
+      - name: openid-connect
+        config:
+          issuer: {{ .Values.oidc.issuer | quote }}
+          client_id: {{ .Values.oidc.clientId | quote }}
+          client_secret: {{ .Values.oidc.clientSecret | quote }}
+          scopes: {{ toJson .Values.oidc.scopes }}
+{{- end }}

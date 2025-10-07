@@ -1,0 +1,18 @@
+openapi: 3.0.3
+info:
+  title: Owl Safety Service
+  version: 1.0.0
+paths:
+  /v1/safety/classify:
+    post:
+      summary: Classify text for safety
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text: { type: string }
+      responses:
+        '200': { description: OK }

@@ -25,7 +25,7 @@ public class QdrantInit {
     private int vectorSizeOverride;
 
     public QdrantInit(EmbeddingModel embeddingModel,
-                      @Value("${QDRANT_URL:http://qdrant:6333}") String qdrantUrl) {
+                      @Value("${QDRANT_URL:http://localhost:6333}") String qdrantUrl) {
         this.embeddingModel = embeddingModel;
         this.qdrant = WebClient.builder().baseUrl(qdrantUrl).build();
     }

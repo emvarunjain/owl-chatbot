@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "owl-app.fullname" . }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels: { app: {{ include "owl-app.fullname" . }} }
+  template:
+    metadata:
+      labels: { app: {{ include "owl-app.fullname" . }} }
+    spec:
+      containers:
+        - name: owl-app
+          image: {{ .Values.image }}
+          ports:
+            - containerPort: 8080
+          env:
+{{- range $k, $v := .Values.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "owl-app.fullname" . }}
+spec:
+  selector: { app: {{ include "owl-app.fullname" . }} }
+  ports:
+    - port: 80
+      targetPort: 8080

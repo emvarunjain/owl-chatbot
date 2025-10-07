@@ -1,0 +1,23 @@
+openapi: 3.0.3
+info:
+  title: Owl Model Proxy
+  version: 1.0.0
+paths:
+  /v1/chat:
+    post:
+      summary: Proxy chat to selected provider/model
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tenantId: { type: string }
+                provider: { type: string, enum: [ollama, openai, azure, bedrock] }
+                model: { type: string }
+                system: { type: string }
+                user: { type: string }
+              required: [tenantId, provider, model, user]
+      responses:
+        '200': { description: OK }

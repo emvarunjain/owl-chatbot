@@ -1,0 +1,570 @@
+openapi: 3.0.3
+info:
+  title: OWL Chatbot API
+  version: 2.0.0
+  description: Minimal OpenAPI for tenants, ingest, chat, admin, feedback, cost, tokens, plans, connectors, routing, and eval.
+servers:
+  - url: http://localhost:8080
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/tenants:
+    post:
+      summary: Create tenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tenantId:
+                  type: string
+                name:
+                  type: string
+              required: [tenantId, name]
+      responses:
+        '200':
+          description: Tenant created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+    get:
+      summary: List tenants
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, default: 0 }
+        - in: query
+          name: size
+          schema: { type: integer, default: 20 }
+      responses:
+        '200': { description: OK }
+  /api/v1/tenants/{tenantId}:
+    get:
+      summary: Get tenant
+      parameters:
+        - in: path
+          name: tenantId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+    put:
+      summary: Update tenant
+      parameters:
+        - in: path
+          name: tenantId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+              required: [name]
+      responses:
+        '200': { description: OK }
+    delete:
+      summary: Delete tenant
+      parameters:
+        - in: path
+          name: tenantId
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: No Content }
+
+  /api/v1/ingest/file:
+    post:
+      summary: Ingest file
+      parameters:
+        - in: query
+          name: tenantId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '200':
+          description: Ingested count
+          content:
+            text/plain:
+              schema: { type: string }
+
+  /api/v1/ingest/url:
+    post:
+      summary: Ingest URL
+      parameters:
+        - in: query
+          name: tenantId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: url
+          required: true
+          schema: { type: string, format: uri }
+      responses:
+        '200': { description: OK }
+
+  /api/v1/ingest/html:
+    post:
+      summary: Ingest normalized HTML
+      parameters:
+        - in: query
+          name: tenantId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: url
+          required: true
+          schema: { type: string, format: uri }
+      responses:
+        '200': { description: OK }
+
+  /api/v1/ingest/sitemap:
+    post:
+      summary: Ingest sitemap URLs
+      parameters:
+        - in: query
+          name: tenantId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: url
+          required: true
+          schema: { type: string, format: uri }
+        - in: query
+          name: max
+          schema: { type: integer, default: 50 }
+      responses:
+        '200': { description: OK }
+
+  /api/v1/chat:
+    post:
+      summary: Chat (KB-grounded)
+      parameters:
+        - in: header
+          name: X-Data-Region
+          schema: { type: string }
+          required: false
+          description: Optional data region hint (e.g., us-east-1)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+      responses:
+        '200':
+          description: Chat response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+
+  /api/v1/admin/search:
+    get:
+      summary: Admin search documents
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: query
+          name: tenantId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: q
+          required: true
+          schema: { type: string }
+        - in: query
+          name: k
+          schema: { type: integer, default: 10 }
+      responses:
+        '200': { description: OK }
+
+  /api/v1/admin/sources:
+    get:
+      summary: Admin list sources
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: query
+          name: tenantId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: sample
+          schema: { type: integer, default: 100 }
+      responses:
+        '200': { description: OK }
+
+  /api/v1/admin/purge:
+    delete:
+      summary: Admin purge by source
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: query
+          name: tenantId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: source
+          required: true
+          schema: { type: string }
+        - in: query
+          name: includeCache
+          schema: { type: boolean, default: false }
+      responses:
+        '200': { description: OK }
+
+  /api/v1/admin/recrawl:
+    post:
+      summary: Admin re-crawl URL or sitemap
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: query
+          name: tenantId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: url
+          required: true
+          schema: { type: string, format: uri }
+        - in: query
+          name: sitemap
+          schema: { type: boolean, default: false }
+        - in: query
+          name: max
+          schema: { type: integer, default: 50 }
+      responses:
+        '200': { description: OK }
+
+  /api/v1/admin/metrics:
+    get:
+      summary: Admin per-tenant metrics
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: query
+          name: tenantId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /api/v1/admin/cluster-sample:
+    get:
+      summary: Admin cluster sample
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: query
+          name: tenantId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: sample
+          schema: { type: integer, default: 200 }
+      responses:
+        '200': { description: OK }
+
+  /api/v1/feedback:
+    post:
+      summary: Submit feedback
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tenantId: { type: string }
+                chatId: { type: string }
+                rating: { type: integer, minimum: 1, maximum: 5 }
+                helpful: { type: boolean }
+                comment: { type: string }
+              required: [tenantId, chatId, rating]
+      responses:
+        '200': { description: OK }
+
+  /api/v1/admin/usage:
+    get:
+      summary: Usage metrics snapshot
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: query
+          name: tenantId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /api/v1/admin/cost:
+    get:
+      summary: Cost/budget snapshot
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: query
+          name: tenantId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /api/v1/admin/budget:
+    post:
+      summary: Set monthly budget
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tenantId: { type: string }
+                monthlyBudgetUsd: { type: number }
+              required: [tenantId, monthlyBudgetUsd]
+      responses:
+        '200': { description: OK }
+
+  /api/v1/admin/settings:
+    post:
+      summary: Update tenant settings
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tenantId: { type: string }
+                fallbackEnabled: { type: boolean }
+                guardrailsEnabled: { type: boolean }
+              required: [tenantId]
+      responses:
+        '200': { description: OK }
+
+  /api/v1/admin/tokens:
+    post:
+      summary: Create API token
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tenantId: { type: string }
+                name: { type: string }
+                scopes:
+                  type: array
+                  items: { type: string }
+              required: [tenantId, name, scopes]
+      responses:
+        '200': { description: OK }
+    get:
+      summary: List API tokens
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: query
+          name: tenantId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /api/v1/admin/tokens/{id}:
+    delete:
+      summary: Revoke token
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: tenantId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /api/v2/admin/plans:
+    get:
+      summary: List plans
+      security: [ { bearerAuth: [] } ]
+      responses:
+        '200': { description: OK }
+  /api/v2/admin/plans/assign:
+    post:
+      summary: Assign plan to tenant
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tenantId: { type: string }
+                planName: { type: string }
+              required: [tenantId, planName]
+      responses:
+        '200': { description: OK }
+
+  /api/v2/admin/connectors:
+    get:
+      summary: List connectors
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: query
+          name: tenantId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+    post:
+      summary: Create connector
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tenantId: { type: string }
+                type: { type: string }
+                config: { type: object }
+              required: [tenantId, type, config]
+      responses:
+        '200': { description: OK }
+
+  /api/v2/admin/connectors/{id}/sync:
+    post:
+      summary: Start connector sync
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: tenantId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /api/v2/admin/connectors/{id}:
+    delete:
+      summary: Delete connector
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: tenantId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /api/v2/admin/routing:
+    post:
+      summary: Set model routing for tenant
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tenantId: { type: string }
+                provider: { type: string }
+                chatModel: { type: string }
+                embedModel: { type: string }
+              required: [tenantId, provider]
+      responses:
+        '200': { description: OK }
+
+  /api/v2/admin/eval:
+    post:
+      summary: Run golden-set evaluation
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tenantId: { type: string }
+                tests:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      question: { type: string }
+                      mustContain: { type: string }
+                    required: [question, mustContain]
+              required: [tenantId, tests]
+      responses:
+        '200': { description: OK }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Tenant:
+      type: object
+      properties:
+        id: { type: string }
+        tenantId: { type: string }
+        name: { type: string }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+    ChatRequest:
+      type: object
+      properties:
+        tenantId: { type: string }
+        question: { type: string }
+        allowWeb: { type: boolean }
+        document: { type: string }
+        fallback:
+          type: object
+          properties:
+            enabled: { type: boolean }
+            budgetUsd: { type: number }
+            maxWebCalls: { type: integer }
+      required: [tenantId, question]
+    ChatResponse:
+      type: object
+      properties:
+        answer: { type: string }
+        sources:
+          type: array
+          items: { type: string }
+        chatId: { type: string }
+        safety: { type: string, enum: [SAFE, REFUSE, REVIEW] }

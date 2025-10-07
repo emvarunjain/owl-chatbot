@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: owl-app
+  labels: { app: owl-app }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: owl-app }
+  template:
+    metadata:
+      labels: { app: owl-app }
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: { app: owl-app }
+      containers:
+        - name: owl-app
+          image: owl-chatbot-owl-app:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: k8s
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef: { name: owl-secrets, key: mongoUri }
+            - name: SPRING_AI_OLLAMA_BASE_URL
+              value: http://ollama:11434
+            - name: SPRING_AI_VECTORSTORE_QDRANT_HOST
+              value: qdrant
+            - name: SPRING_AI_VECTORSTORE_QDRANT_PORT
+              value: "6334"
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: 8080 }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8080 }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: owl-app
+spec:
+  selector: { app: owl-app }
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: owl-app-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: owl-app }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: owl-app-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: owl-app
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60

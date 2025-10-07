@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kong.fullname" . }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels: { app: {{ include "kong.fullname" . }} }
+  template:
+    metadata:
+      labels: { app: {{ include "kong.fullname" . }} }
+    spec:
+      containers:
+        - name: kong
+          image: {{ if .Values.customImage.enabled }}{{ printf "%s:%s" .Values.customImage.repository .Values.customImage.tag }}{{ else }}{{ .Values.image }}{{ end }}
+          ports:
+            - containerPort: 8000
+          env:
+            - name: KONG_DATABASE
+              value: off
+            - name: KONG_DECLARATIVE_CONFIG
+              value: /etc/kong/kong.yml
+            - name: KONG_PLUGINS
+              value: {{ if .Values.enterprise.enabled }}bundled,openid-connect{{ else if .Values.customImage.enabled }}{{ .Values.customImage.plugins | quote }}{{ else }}bundled{{ end }}
+{{- if .Values.enterprise.enabled }}
+            - name: KONG_LICENSE_DATA
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.enterprise.licenseSecretName }}
+                  key: license
+{{- end }}
+          volumeMounts:
+            - name: kong-config
+              mountPath: /etc/kong/kong.yml
+              subPath: kong.yml
+      volumes:
+        - name: kong-config
+          configMap:
+            name: {{ include "kong.fullname" . }}-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kong.fullname" . }}
+spec:
+  selector: { app: {{ include "kong.fullname" . }} }
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: 8000
+      name: http

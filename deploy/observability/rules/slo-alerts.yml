@@ -1,0 +1,17 @@
+groups:
+  - name: owl-slo
+    rules:
+      - alert: HighLatency
+        expr: sum(rate(chat_model_time_seconds_sum[5m])) / sum(rate(chat_model_time_seconds_count[5m])) > 3
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          description: Average model latency > 3s for 10m
+      - alert: LowAvailability
+        expr: (sum(rate(http_server_requests_seconds_count{outcome!~"SUCCESS|2xx"}[5m])) / sum(rate(http_server_requests_seconds_count[5m]))) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          description: Error rate > 5% for 10m

@@ -1,0 +1,38 @@
+image: kong:3.6
+replicaCount: 1
+service:
+  type: ClusterIP
+  port: 8000
+
+routes:
+  owlAppV1:
+    paths: ["/api/v1", "/api/v2"]
+    url: http://owl-app:8080
+  retrieval:
+    paths: ["/retrieval"]
+    url: http://retrieval-service:9090
+  safety:
+    paths: ["/safety"]
+    url: http://safety-service:9091
+  modelproxy:
+    paths: ["/modelproxy"]
+    url: http://model-proxy:9092
+
+oidc:
+  enabled: false
+  issuer: ""
+  clientId: ""
+  clientSecret: ""
+  scopes: ["openid","profile","email"]
+
+# Kong Enterprise OIDC option (requires licensed image and license secret)
+enterprise:
+  enabled: false
+  licenseSecretName: kong-license
+
+# Custom image option for OSS with community OIDC plugin baked in
+customImage:
+  enabled: false
+  repository: your-registry/kong-oidc-custom
+  tag: latest
+  plugins: bundled,kong-oidc

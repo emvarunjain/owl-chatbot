@@ -1,0 +1,7 @@
+image: owl-model-proxy
+replicaCount: 2
+env:
+  OPENAI_API_KEY: ""
+  OPENAI_BASE_URL: https://api.openai.com
+  AZURE_OPENAI_API_KEY: ""
+  AZURE_OPENAI_ENDPOINT: ""

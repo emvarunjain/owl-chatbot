@@ -6,127 +6,60 @@ import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.time.Instant;
-import java.util.*;
+import java.util.Map;
+import java.util.Optional;
 
 /**
- * Semantic response cache using the same VectorStore (Qdrant) as KB.
- * Cache documents carry metadata:
- *   - type=cache
- *   - tenantId=<tenant>
- *   - cachedAnswer=<final answer text>
- *   - qHash=<sha256 of normalized question + tenantId>
- *   - normalizedQuestion
- *   - createdAt=<ISO-8601>
+ * Semantic cache: saves LLM answers as vectorized docs (type=cache) per tenant.
+ * On lookup, if nearest cached answer similarity >= threshold, short-circuit the LLM.
  */
 @Service
 public class CacheService {
 
-    private final VectorStore vectorStore;
-    private final double similarityThreshold;
-    private final boolean enableCrossTenantFallback;
-    private final int maxAnswerChars;
+    private final VectorStore store;
+    private final double threshold;
 
-    public CacheService(
-            VectorStore vectorStore,
-            @Value("${owl.cache.similarity-threshold:0.90}") double similarityThreshold,
-            @Value("${owl.cache.enable-cross-tenant:false}") boolean enableCrossTenantFallback,
-            @Value("${owl.cache.max-answer-chars:4000}") int maxAnswerChars
-    ) {
-        this.vectorStore = vectorStore;
-        this.similarityThreshold = similarityThreshold;
-        this.enableCrossTenantFallback = enableCrossTenantFallback;
-        this.maxAnswerChars = maxAnswerChars;
+    public CacheService(VectorStore store,
+                        @Value("${owl.cache.similarity-threshold:0.90}") double threshold) {
+        this.store = store;
+        this.threshold = threshold;
     }
 
-    /** Try to find a cached answer for this question under this tenant. */
-    public Optional<String> lookup(String tenantId, String question) {
-        String normQ = normalize(question);
-
-        // 1) Tenant-scoped lookup
-        Optional<String> tenantHit = lookupInternal(
-                "type == 'cache' && tenantId == '" + escape(tenantId) + "'",
-                normQ
-        );
-        if (tenantHit.isPresent()) return tenantHit;
-
-        // 2) Optional cross-tenant (common) cache
-        if (enableCrossTenantFallback) {
-            return lookupInternal("type == 'cache'", normQ);
-        }
-        return Optional.empty();
-    }
-
-    /** Save an answer into cache for this tenant+question. */
-    public void save(String tenantId, String question, String answer) {
-        if (answer == null || answer.isBlank()) return;
-
-        String normQ = normalize(question);
-        String qHash = sha256(tenantId + "::" + normQ);
-        String trimmedAnswer = answer.length() > maxAnswerChars
-                ? answer.substring(0, maxAnswerChars)
-                : answer;
-
-        Map<String, Object> meta = new HashMap<>();
-        meta.put("type", "cache");
-        meta.put("tenantId", tenantId);
-        meta.put("normalizedQuestion", normQ);
-        meta.put("qHash", qHash);
-        meta.put("createdAt", Instant.now().toString());
-        meta.put("cachedAnswer", trimmedAnswer);
-
-        // Use the QUESTION as the vectorized "content" for similarity.
-        Document d = new Document(question, meta);
-        vectorStore.add(List.of(d));
-    }
-
-    // ---------------------- internals ----------------------
-
-    private Optional<String> lookupInternal(String filterExpression, String normalizedQuestion) {
+    public Optional<String> lookup(String tenantId, String query) {
+        // Spring AI 1.0.1: use builder(), not a static "query(...)" method.
         SearchRequest req = SearchRequest.builder()
-                .query(normalizedQuestion)
+                .query(query)
                 .topK(1)
-                .similarityThreshold(similarityThreshold)
-                .filterExpression(filterExpression)   // <<— String filter expression
+                .similarityThreshold(0.0) // disable threshold here; we enforce our own
+                // You can pass a string DSL directly; it will be parsed for the vector store.
+                .filterExpression("tenantId == '" + escape(tenantId) + "' && type == 'cache'")
                 .build();
 
-        List<Document> hits = vectorStore.similaritySearch(req);
+        var hits = store.similaritySearch(req); // disambiguates the overload
         if (hits == null || hits.isEmpty()) return Optional.empty();
 
-        Document top = hits.get(0);
-        Object cached = top.getMetadata().get("cachedAnswer");
-        if (cached == null) return Optional.empty();
-
-        String ans = cached.toString();
-        if (ans.isBlank()) return Optional.empty();
-
-        return Optional.of(ans);
+        Document doc = hits.get(0);
+        double score = readScore(doc);
+        // In Spring AI 1.0.1, text lives on Content.getText() which Document implements.
+        return score >= threshold ? Optional.of(doc.getText()) : Optional.empty();
     }
 
-    private static String normalize(String s) {
-        if (s == null) return "";
-        return s.toLowerCase(Locale.ROOT)
-                .replaceAll("[\\p{Punct}&&[^/.:]]", " ") // keep URL-ish chars
-                .replaceAll("\\s+", " ")
-                .trim();
+    public void save(String tenantId, String query, String answer) {
+        // Store the cached answer as a Document with metadata that marks it as cache.
+        var cachedDoc = new Document(answer, Map.of(
+                "tenantId", tenantId,
+                "type", "cache",
+                "question", query
+        ));
+        store.add(java.util.List.of(cachedDoc));
     }
 
-    private static String sha256(String s) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] out = md.digest(s.getBytes(StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder(out.length * 2);
-            for (byte b : out) sb.append(String.format("%02x", b));
-            return sb.toString();
-        } catch (Exception e) {
-            return Integer.toHexString(s.hashCode());
-        }
+    private double readScore(Document d) {
+        Object s = d.getMetadata().get("score");
+        return (s instanceof Number n) ? n.doubleValue() : 0.0;
     }
 
-    private static String escape(String v) {
-        // basic single-quote escape for filter expressions
-        return v.replace("'", "\\'");
+    private static String escape(String s) {
+        return s.replace("'", "\\'");
     }
 }

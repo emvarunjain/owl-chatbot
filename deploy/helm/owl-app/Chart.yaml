@@ -1,0 +1,5 @@
+apiVersion: v2
+name: owl-app
+version: 0.1.0
+appVersion: "0.1.0"
+description: Owl Monolith (Chat Orchestrator)

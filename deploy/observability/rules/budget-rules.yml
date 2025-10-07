@@ -1,0 +1,8 @@
+groups:
+  - name: owl-budget
+    interval: 1m
+    rules:
+      - record: tenant:chat_cost_usd:rate5m
+        expr: sum by (tenantId) (rate(chat_cost_usd_total[5m]))
+      - record: tenant:chat_cost_usd:month
+        expr: sum_over_time(tenant:chat_cost_usd:rate5m[30d])

@@ -1,0 +1,152 @@
+# Owl Microservices Architecture (Target)
+
+This document proposes a production-grade microservices decomposition for Owl. It identifies current bottlenecks, outlines service boundaries and contracts, and lists a phased migration path to minimize risk.
+
+## Bottlenecks in the monolith
+- Chat orchestration is synchronous and single-instance bound; LLM calls, safety model, and retrieval all happen inline.
+- Vector I/O (Qdrant) and Mongo (per-tenant DB) share a single app throughput envelope.
+- Ingestion/conversion (Tika/HTML) competes with chat request threads.
+- Safety model (LLM-in-the-loop) and web fallback can spike latency; need independent scaling and circuit breakers.
+- Connectors (GDrive/Confluence/Notion) are worker-style tasks mixed with API workloads.
+
+## Core principles
+- Each service owns its data (separate DB/collection/indices). No shared DB writes across services.
+- APIs are versioned and stable; inter-service calls through REST/HTTP or async events (Redpanda/Kafka) with schemas.
+- Use e2e idempotency keys and outbox pattern for reliability; avoid tight coupling.
+- Horizontal scale ready: stateless request handlers, cheap cold starts, clear CPU/RAM profiles.
+- Multi-region: region-local deployments with a global control-plane (tenant + plan + routing) replicated where needed.
+
+## Services (first cut)
+
+1) API Gateway / Edge
+- Responsibilities: authN/Z (JWT, API keys), rate limiting, routing to services, request-level headers (X-Data-Region), tenant check.
+- Tech: Kong/Envoy/NGINX + OIDC plugin; per-tenant rate-limit policies.
+
+2) Chat Orchestrator (Stateless)
+- Responsibilities: request validation, prompt cache lookup, call Safety API, call Retrieval API, synthesize prompts, call Model Proxy, save chat, emit audit/events.
+- Interfaces:
+  - REST: POST /v1/chat
+  - REST: GET /v1/chat/{id}
+  - Emits: owl.events.chat, owl.events.cost
+- Scale: CPU-bound on tokenization and JSON; horizontal scale with HPA.
+
+3) Retrieval Service
+- Responsibilities: vector add/search, payload filters, collection-per-tenant regions. Exposes only REST; isolates Qdrant client and embedding model concerns.
+- Interfaces:
+  - REST: POST /v1/search { tenantId, q, document?, topK }
+  - REST: POST /v1/add { tenantId, docs[] }
+- Data: Qdrant cluster + optional Redis cache.
+- Scale: network/IO heavy; scale by cores and Qdrant cluster size.
+
+4) Ingestion Service
+- Responsibilities: file/URL/sitemap ingestion, DLP, chunking, dedup, send to Retrieval add.
+- Interfaces:
+  - REST: POST /v1/ingest/file
+  - REST: POST /v1/ingest/url
+  - REST: POST /v1/ingest/sitemap
+  - Emits: owl.events.ingest
+- Workers: internal queue for large jobs; autoscale independently.
+
+5) Safety Service
+- Responsibilities: LLM-in-the-loop classification (SAFE/REFUSE/REVIEW) with policy sets; exposes REST only.
+- Interfaces:
+  - REST: POST /v1/safety/classify { text }
+- Scale: token-bound; separate model routing (Ollama/OpenAI) allowed; strict timeouts + circuit breaker.
+
+6) Model Proxy / Router
+- Responsibilities: per-tenant provider selection (Ollama/OpenAI/Azure/Bedrock), prompt caching, usage metering.
+- Interfaces:
+  - REST: POST /v1/chat { model, messages }
+- Scale: compute-bound; can pool provider clients; enforces timeouts and retry policies.
+
+7) Tenants & Config (Control Plane)
+- Responsibilities: tenants, plans, quotas, budgets, regions, routing, API keys, credentials.
+- Interfaces:
+  - REST: /v1/tenants, /v1/plans, /v1/budgets, /v1/credentials, /v1/routing, /v1/settings
+- Data: shared core DB (logical/physical split per region if required).
+
+8) Chat History Service
+- Responsibilities: persist chat records per tenant (encrypted at rest), expose read APIs (no business logic).
+- Interfaces:
+  - REST: GET /v1/chats?tenantId=...
+  - REST: GET /v1/chats/{id}
+- Data: per-tenant Mongo databases, region-aware naming.
+
+9) Feedback & Preference Service
+- Responsibilities: store feedback (CSAT), preference memory, expose queries.
+- Interfaces:
+  - REST: POST /v1/feedback
+  - REST: GET /v1/preferences?tenantId=...
+- Emits: owl.events.feedback
+
+10) Billing/Metering Service
+- Responsibilities: process cost/usage events, produce invoices, expose spend/usage summaries.
+- Interfaces:
+  - Consumes: owl.events.cost, owl.events.chat
+  - REST: GET /v1/cost?tenantId=..., /v1/usage
+- Data: append-only store (e.g., object storage + parquet), cache in DB for fast queries.
+
+11) Analytics Service
+- Responsibilities: topic trends, zero-answer RCA, dashboards.
+- Inputs: object storage lake (S3/GCS), aggregates via Flink/Spark/DBT.
+- REST: GET /v1/analytics/trends?tenantId=...
+
+12) Connector Workers
+- Responsibilities: GDrive/Confluence/Notion sync; job scheduler; transform to text and call Ingestion.
+- Interfaces:
+  - REST: /v1/connectors, /v1/connectors/{id}/sync
+  - Emits: owl.events.audit, owl.events.ingest
+
+## Contracts & Events
+- Events: use Avro/Protobuf and a schema registry. Topics:
+  - owl.events.chat { tenantId, chatId, cacheHit, latencyMs }
+  - owl.events.cost { tenantId, usd, latencyMs }
+  - owl.events.feedback { tenantId, chatId, rating }
+  - owl.events.ingest { tenantId, source, chunks }
+  - owl.events.audit { tenantId, actor, action, details }
+
+- REST contracts (selected):
+  - Retrieval: POST /v1/search { tenantId, q, document?, topK } → { docs: [{text, metadata}] }
+  - Safety: POST /v1/safety/classify { text } → { outcome: SAFE|REFUSE|REVIEW }
+  - Model Proxy: POST /v1/chat { tenantId, provider, model, messages } → { text, usage }
+
+## Multi-region
+- Deploy independent stacks per region; global control-plane replicates tenants/plans/routing.
+- Region routing: X-Data-Region from client or tenant default; edge routes to regional stack.
+- Data residency: per-tenant DB + per-tenant vector collection include region prefix.
+
+## Scaling & reliability patterns
+- Stateless services; HPA by CPU/RPS; PDB minAvailable ≥ 1.
+- Bulkheads: isolate safety/model proxy/ingestion.
+- Circuit breakers + retries at orchestrator for Safety, Model Proxy, Web Fallback.
+- Outbox + idempotency keys for events; at-least-once consumers.
+- Redis for prompt cache; Qdrant cluster for vectors; Mongo sharding if needed.
+
+## Migration (phased)
+1. Modular monolith boundaries
+   - Extract packages: chat, retrieval, ingestion, safety, connectors, tenants, billing, analytics.
+   - Introduce HTTP clients for internal calls; refactor to use interfaces.
+2. Extract Safety Service
+   - Spin off /v1/safety/classify; Chat calls via HTTP; remove direct model call from Chat.
+3. Extract Retrieval Service
+   - Chat/ingestion talk to Retrieval via REST; move Qdrant client and embeddings here.
+4. Extract Model Proxy
+   - Chat calls Model Proxy; Model Proxy owns provider SDKs and caching.
+5. Split Tenants/Control-plane
+   - Tenants, plans, quotas, routing, credentials as shared control plane.
+6. Extract Feedback & Billing services
+   - Event-driven metering and CSAT analytics; backfill pipelines to lake.
+7. Connectors to workers
+   - Use async jobs and backpressure; autoscale independent of chat traffic.
+
+## Security & governance
+- Auth: OIDC/JWT at gateway; API keys with scopes for programmatic use.
+- Per-service RBAC; service-to-service auth via mTLS or JWT.
+- Auditing via events; redact PII via DLP in ingestion; encryption at rest per tenant.
+
+## Observability & SLOs
+- Per-service metrics/traces/logs; exemplars.
+- SLOs: latency p95/p99, availability error budget; alert routes with Prometheus rules.
+
+## De-risking
+- Contract tests between services; canary deploys; schema evolution via additive changes; feature flags for routing.

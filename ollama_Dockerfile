@@ -1,0 +1,26 @@
+# Save as: ollama.Dockerfile
+# Stage 1: pull models with a running server
+FROM ollama/ollama:latest AS builder
+
+# Start the server in the background, wait for it to be ready, then pull models
+RUN set -eux; \
+    (ollama serve &); \
+    for i in $(seq 1 60); do \
+      sleep 1; \
+      if ollama list >/dev/null 2>&1; then echo "Ollama is up"; break; fi; \
+      echo "Waiting for Ollama... ($i)"; \
+    done; \
+    ollama pull nomic-embed-text; \
+    ollama pull llama3.1:8b-instruct-q8_0; \
+    echo "Models pulled."
+
+# Stage 2: final runtime with preloaded models
+FROM ollama/ollama:latest
+
+# Copy the downloaded model blobs from the builder
+COPY --from=builder /root/.ollama /root/.ollama
+
+# Expose and serve
+ENV OLLAMA_HOST=0.0.0.0
+EXPOSE 11434
+CMD ["serve"]

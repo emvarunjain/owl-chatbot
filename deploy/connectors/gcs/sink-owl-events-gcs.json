@@ -1,0 +1,21 @@
+{
+  "name": "owl-gcs-sink",
+  "config": {
+    "connector.class": "io.confluent.connect.gcs.GcsSinkConnector",
+    "tasks.max": "1",
+    "topics.regex": "owl\\.events\\..*",
+    "gcs.bucket.name": "YOUR_GCS_BUCKET",
+    "gcs.part.size": "5242880",
+    "gcs.credentials.json": "${file:/data/creds/gcp.json:file}",
+    "format.class": "io.confluent.connect.gcs.format.json.JsonFormat",
+    "flush.size": "1000",
+    "rotate.interval.ms": "60000",
+    "partitioner.class": "io.confluent.connect.storage.partitioner.TimeBasedPartitioner",
+    "path.format": "'year='YYYY/'month='MM/'day='dd/'hour='HH",
+    "locale": "en",
+    "timezone": "UTC",
+    "timestamp.extractor": "Wallclock",
+    "value.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "key.converter": "org.apache.kafka.connect.storage.StringConverter"
+  }
+}

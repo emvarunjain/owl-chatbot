@@ -1,0 +1,8 @@
+owl-app:
+  replicaCount: 2
+retrieval-service:
+  replicaCount: 2
+safety-service:
+  replicaCount: 2
+model-proxy:
+  replicaCount: 2

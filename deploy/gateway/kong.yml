@@ -1,0 +1,34 @@
+_format_version: "3.0"
+services:
+  - name: chat
+    url: http://owl-app:8080
+    routes:
+      - name: chat-v1
+        paths: ["/api/v1"]
+      - name: chat-v2
+        paths: ["/api/v2"]
+  - name: retrieval
+    url: http://retrieval-service:9090
+    routes:
+      - name: retrieval-route
+        paths: ["/retrieval"]
+  - name: safety
+    url: http://safety-service:9091
+    routes:
+      - name: safety-route
+        paths: ["/safety"]
+  - name: modelproxy
+    url: http://model-proxy:9092
+    routes:
+      - name: modelproxy-route
+        paths: ["/modelproxy"]
+plugins:
+  - name: rate-limiting
+    config:
+      minute: 120
+      policy: local
+  - name: request-transformer
+    config:
+      add:
+        headers:
+          - "X-Data-Region:us-east-1"

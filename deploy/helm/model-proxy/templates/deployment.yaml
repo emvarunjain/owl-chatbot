@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "model-proxy.fullname" . }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "model-proxy.fullname" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "model-proxy.fullname" . }}
+    spec:
+      containers:
+        - name: modelproxy
+          image: {{ .Values.image }}
+          ports:
+            - containerPort: 9092
+          env:
+            - name: OPENAI_API_KEY
+              value: {{ .Values.env.OPENAI_API_KEY | quote }}
+            - name: OPENAI_BASE_URL
+              value: {{ .Values.env.OPENAI_BASE_URL | quote }}
+            - name: AZURE_OPENAI_API_KEY
+              value: {{ .Values.env.AZURE_OPENAI_API_KEY | quote }}
+            - name: AZURE_OPENAI_ENDPOINT
+              value: {{ .Values.env.AZURE_OPENAI_ENDPOINT | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "model-proxy.fullname" . }}
+spec:
+  selector:
+    app: {{ include "model-proxy.fullname" . }}
+  ports:
+    - port: 9092
+      targetPort: 9092

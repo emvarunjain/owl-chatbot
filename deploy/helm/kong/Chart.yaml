@@ -1,0 +1,4 @@
+apiVersion: v2
+name: kong-gateway
+version: 0.1.0
+description: Kong Gateway (DB-less) with declarative config

@@ -22,7 +22,7 @@ public class DebugController {
                 SearchRequest.builder()
                         .query("introduction overview summary")
                         .topK(Math.min(Math.max(sample, 1), 200))
-                        .filterExpression("tenantId == \"" + tenantId + "\"")
+                        .filterExpression("tenantId == '" + tenantId.replace("'","\\'") + "'")
                         .build()
         );
         Set<String> names = docs.stream()

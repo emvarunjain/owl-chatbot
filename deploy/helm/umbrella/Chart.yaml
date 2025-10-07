@@ -1,0 +1,18 @@
+apiVersion: v2
+name: owl-umbrella
+version: 0.1.0
+description: Umbrella chart for Owl services
+type: application
+dependencies:
+  - name: owl-app
+    version: 0.1.0
+    repository: "file://../owl-app"
+  - name: retrieval-service
+    version: 0.1.0
+    repository: "file://../retrieval-service"
+  - name: safety-service
+    version: 0.1.0
+    repository: "file://../safety-service"
+  - name: model-proxy
+    version: 0.1.0
+    repository: "file://../model-proxy"

@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-owl
+  labels:
+    grafana_dashboard: "1"
+data:
+  dashboard-owl.json: |
+    {"__inputs":[],"annotations":{"list":[]},"editable":true,"panels":[{"type":"stat","title":"Cache Hit Ratio (5m)","gridPos":{"h":6,"w":8,"x":0,"y":0},"targets":[{"expr":"sum(rate(chat_requests_total{tenantId=~\"$tenant\"}[5m]))","refId":"A","hide":true},{"expr":"sum(rate(chat_requests_total{tenantId=~\"$tenant\",cache=\"hit\"}[5m])) / sum(rate(chat_requests_total{tenantId=~\"$tenant\"}[5m]))","refId":"B"}],"options":{"reduceOptions":{"calcs":["lastNotNull"]},"orientation":"auto","textMode":"auto","colorMode":"value"}},{"type":"timeseries","title":"Requests by Tenant (rate)","gridPos":{"h":8,"w":16,"x":8,"y":0},"targets":[{"expr":"sum by (tenantId) (rate(chat_requests_total[5m]))","refId":"A"}]},{"type":"timeseries","title":"Model Latency Avg (s)","gridPos":{"h":8,"w":12,"x":0,"y":6},"targets":[{"expr":"sum by (tenantId) (rate(chat_model_time_seconds_sum[5m])) / sum by (tenantId) (rate(chat_model_time_seconds_count[5m]))","refId":"A"}]},{"type":"timeseries","title":"Cost Spend (USD rate)","gridPos":{"h":8,"w":12,"x":12,"y":6},"targets":[{"expr":"sum by (tenantId) (rate(chat_cost_usd_total[5m]))","refId":"A"}]},{"type":"stat","title":"Budget vs Spend (Monthly)","gridPos":{"h":6,"w":8,"x":0,"y":12},"targets":[{"expr":"sum(tenant:chat_cost_usd:month{tenantId=~\"$tenant\"})","refId":"A"},{"expr":"sum(chat_budget_usd{tenantId=~\"$tenant\"})","refId":"B"}],"options":{"reduceOptions":{"calcs":["lastNotNull"]}}}],"schemaVersion":38,"style":"dark","tags":["owl"],"templating":{"list":[{"name":"tenant","type":"query","datasource":"Prometheus","query":"label_values(chat_requests_total, tenantId)","includeAll":true,"multi":true,"refresh":1}]},"time":{"from":"now-6h","to":"now"},"title":"Owl — Chat Ops"}

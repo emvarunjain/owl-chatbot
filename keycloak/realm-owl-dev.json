@@ -1,0 +1,57 @@
+{
+  "realm": "owl-dev",
+  "enabled": true,
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "clients": [
+    {
+      "clientId": "owl-api",
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": true,
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "attributes": {}
+    },
+    {
+      "clientId": "owl-web",
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "redirectUris": ["*"],
+      "webOrigins": ["*"],
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "protocolMappers": [
+        {
+          "name": "tenant",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "tenant",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "tenant",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "emailVerified": false,
+      "firstName": "Alice",
+      "lastName": "Anderson",
+      "attributes": { "tenant": ["acme"] },
+      "credentials": [ { "type": "password", "value": "alice", "temporary": false } ]
+    }
+  ]
+}
+

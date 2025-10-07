@@ -1,0 +1,5 @@
+image: owl-safety-service
+replicaCount: 2
+ollama:
+  baseUrl: http://ollama:11434
+model: ""

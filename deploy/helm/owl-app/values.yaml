@@ -1,0 +1,11 @@
+image: owl-chatbot-owl-app
+replicaCount: 2
+env:
+  SPRING_PROFILES_ACTIVE: docker
+  SPRING_DATA_MONGODB_URI: mongodb://mongodb:27017/owl
+  SPRING_AI_VECTORSTORE_QDRANT_HOST: qdrant
+  SPRING_AI_VECTORSTORE_QDRANT_PORT: "6334"
+  SPRING_AI_OLLAMA_BASE_URL: http://ollama:11434
+  RETRIEVAL_URL: http://retrieval-service:9090
+  OWL_SAFETY_REMOTE_URL: http://safety-service:9091
+  MODEL_PROXY_URL: http://model-proxy:9092

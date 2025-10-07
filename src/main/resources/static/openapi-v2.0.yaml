@@ -1,0 +1,6 @@
+openapi: 3.0.3
+info:
+  title: OWL Chatbot API
+  version: 2.0.0
+  description: Alias file pointing to the consolidated v2.0 spec. See /openapi-v1.1.yaml for full details.
+paths: {}

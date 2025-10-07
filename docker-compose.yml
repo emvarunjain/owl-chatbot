@@ -1,59 +1,229 @@
+networks:
+  backend:
+  frontend:
+  monitoring:
+
+volumes:
+  mongo_data:
+  qdrant_storage:
+  ollama:
+  redpanda_data:
+  prometheus_data:
+  grafana_data:
+  connect_data:
+  keycloak_data:
+
 services:
-  owl-app:
-    build: .
-    container_name: owl-app
-    env_file:
-      - .env
-    ports:
-      - "8080:8080"
-    depends_on:
-      qdrant:
-        condition: service_healthy
-      mongodb:
-        condition: service_started
-    environment:
-      # Qdrant over gRPC on the compose network
-      SPRING_AI_VECTORSTORE_QDRANT_HOST: qdrant
-      SPRING_AI_VECTORSTORE_QDRANT_PORT: 6334
-      SPRING_AI_VECTORSTORE_QDRANT_COLLECTION_NAME: owl_kb
-      SPRING_AI_VECTORSTORE_QDRANT_USE_TLS: "false"
-      # Ollama on your Mac host
-      OLLAMA_BASE_URL: http://host.docker.internal:11434
-    volumes:
-      - ./logs:/app/logs
-
-  qdrant:
-    image: qdrant/qdrant:v1.15.3
-    container_name: qdrant
-    ports:
-      - "6333:6333"   # REST
-      - "6334:6334"   # gRPC
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/6333'"]
-      interval: 5s
-      timeout: 3s
-      retries: 60
-    volumes:
-      - qdrant_storage:/qdrant/storage
-
   mongodb:
     image: mongo:6.0
     container_name: mongodb
+    networks: [backend]
     ports:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:v1.15.3
+    container_name: qdrant
+    platform: linux/arm64/v8        # Apple Silicon
+    networks: [backend]
+    ports:
+      - "6333:6333"                 # REST
+      - "6334:6334"                 # gRPC
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    restart: unless-stopped
 
   redpanda:
     image: redpandadata/redpanda:latest
     container_name: redpanda
-    command: >
-      redpanda start --overprovisioned --smp 1 --memory 1G --reserve-memory 0M
-      --node-id 0 --check=false
+    command:
+      - redpanda start
+      - --overprovisioned
+      - --smp=1
+      - --memory=1G
+      - --reserve-memory=0M
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda:9092
+    networks: [backend]
+    ports:
+      - "9092:9092"                 # Kafka
+      - "9644:9644"                 # Admin API
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    platform: linux/arm64           # Apple Silicon
+    networks: [backend]
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    volumes:
+      - ollama:/root/.ollama        # persistent model cache
+    command: ["serve"]              # run the Ollama server
+    restart: unless-stopped
+
+  owl-app:
+    build: .
+    image: owl-chatbot-owl-app
+    container_name: owl-app
+    depends_on:
+      mongodb:
+        condition: service_started
+      qdrant:
+        condition: service_started
+      redpanda:
+        condition: service_started
+      ollama:
+        condition: service_started
+    networks:
+      - backend
+      - frontend
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATA_MONGODB_URI=mongodb://mongodb:27017/owl
+      - SPRING_AI_VECTORSTORE_QDRANT_HOST=qdrant
+      - SPRING_AI_VECTORSTORE_QDRANT_PORT=6334
+      - SPRING_AI_OLLAMA_BASE_URL=http://ollama:11434
+      # Spring AI (1.0.1) model selections:
+      - SPRING_AI_OLLAMA_CHAT_OPTIONS_MODEL=llama3.1:8b-instruct-q8_0
+      - SPRING_AI_OLLAMA_EMBEDDING_OPTIONS_MODEL=nomic-embed-text
+      # Kafka (optional; app can ignore if unused)
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=redpanda:9092
+      - RETRIEVAL_URL=http://retrieval-service:9090
+      - OWL_SAFETY_REMOTE_URL=http://safety-service:9091
+      - MODEL_PROXY_URL=http://model-proxy:9092
+      # Keycloak (optional): enable to require JWT for /api/**
+      - OWL_SECURITY_ENABLED=${OWL_SECURITY_ENABLED:false}
+      - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=${ISSUER_URI:http://keycloak:8080/realms/owl-dev}
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: prometheus
+    networks: [backend, monitoring]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: grafana
+    networks: [monitoring]
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/observability/grafana/dashboard-owl.json:/var/lib/grafana/dashboards/dashboard-owl.json:ro
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    restart: unless-stopped
+
+  retrieval-service:
+    build: ./services/retrieval-service
+    image: owl-retrieval-service
+    container_name: retrieval-service
+    networks: [backend]
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6334
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - QDRANT_COLLECTION=owl_kb
+    ports:
+      - "9090:9090"
+    depends_on:
+      qdrant:
+        condition: service_started
+      ollama:
+        condition: service_started
+    restart: unless-stopped
+
+  safety-service:
+    build: ./services/safety-service
+    image: owl-safety-service
+    container_name: safety-service
+    networks: [backend]
+    environment:
+      - OWL_SAFETY_MODEL=${OWL_SAFETY_MODEL:}
+      - OWL_SAFETY_OLLAMA_BASE_URL=${OWL_SAFETY_OLLAMA_BASE_URL:http://ollama:11434}
+      - SPRING_AI_OLLAMA_BASE_URL=http://ollama:11434
+    ports:
+      - "9091:9091"
+    depends_on:
+      ollama:
+        condition: service_started
+    restart: unless-stopped
+
+  model-proxy:
+    build: ./services/model-proxy
+    image: owl-model-proxy
+    container_name: model-proxy
+    networks: [backend]
+    environment:
+      - SPRING_AI_OLLAMA_BASE_URL=http://ollama:11434
     ports:
       - "9092:9092"
-      - "9644:9644"
+    depends_on:
+      ollama:
+        condition: service_started
+    restart: unless-stopped
 
-volumes:
-  qdrant_storage: {}
-  mongo_data: {}
+  kafka-connect:
+    image: confluentinc/cp-kafka-connect:7.6.0
+    container_name: kafka-connect
+    networks: [backend]
+    ports:
+      - "8083:8083"
+    environment:
+      - CONNECT_BOOTSTRAP_SERVERS=redpanda:9092
+      - CONNECT_REST_ADVERTISED_HOST_NAME=kafka-connect
+      - CONNECT_REST_PORT=8083
+      - CONNECT_GROUP_ID=connect-cluster
+      - CONNECT_CONFIG_STORAGE_TOPIC=_connect-configs
+      - CONNECT_OFFSET_STORAGE_TOPIC=_connect-offsets
+      - CONNECT_STATUS_STORAGE_TOPIC=_connect-status
+      - CONNECT_KEY_CONVERTER=org.apache.kafka.connect.storage.StringConverter
+      - CONNECT_VALUE_CONVERTER=org.apache.kafka.connect.storage.StringConverter
+      - CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR=1
+      - CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR=1
+      - CONNECT_STATUS_STORAGE_REPLICATION_FACTOR=1
+      - CONNECT_PLUGIN_PATH=/usr/share/java,/data/plugins
+    volumes:
+      - connect_data:/data
+    depends_on:
+      redpanda:
+        condition: service_started
+    restart: unless-stopped
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    container_name: keycloak
+    command: ["start-dev", "--http-port=8080", "--import-realm"]
+    environment:
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
+      - KC_HTTP_ENABLED=true
+      - KC_HEALTH_ENABLED=true
+      - KC_METRICS_ENABLED=true
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+      - ./keycloak/realm-owl-dev.json:/opt/keycloak/data/import/realm-owl-dev.json:ro
+    networks: [backend]
+    ports:
+      - "8081:8080"
+    restart: unless-stopped

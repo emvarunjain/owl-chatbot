@@ -1,121 +1,114 @@
 package com.owl.service;
 
-import com.owl.util.PdfUtil;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.reader.jsoup.JsoupDocumentReader;
 import org.springframework.ai.reader.tika.TikaDocumentReader;
-import org.springframework.ai.reader.ExtractedTextFormatter;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.net.URI;
-import java.util.*;
+import java.util.List;
+import java.util.Map;
 
+/**
+ * Ingests PDFs/Office docs via Tika, and single URLs via Jsoup.
+ * Each chunk gets tenantId + source metadata (filename or url).
+ * (No ExtractedTextFormatter used -> compatible with Spring AI 1.0.1)
+ */
 @Service
 public class IngestionService {
 
-    private final VectorStore vectorStore;
+    private final TenantVectorService tenantVectors;
+    private final EventPublisher events;
+    private final DedupService dedup;
+    private final SitemapCrawler crawler;
+    private final DlpService dlp;
+    private final RemoteRetrievalClient remote;
 
-    public IngestionService(VectorStore vectorStore) {
-        this.vectorStore = vectorStore;
+    public IngestionService(TenantVectorService tenantVectors, EventPublisher events, DedupService dedup, SitemapCrawler crawler, DlpService dlp, RemoteRetrievalClient remote) {
+        this.tenantVectors = tenantVectors;
+        this.events = events;
+        this.dedup = dedup;
+        this.crawler = crawler;
+        this.dlp = dlp;
+        this.remote = remote;
     }
 
     public int ingestFile(String tenantId, MultipartFile file) throws Exception {
-        String filename = (file.getOriginalFilename() == null ? "upload" : file.getOriginalFilename()).toLowerCase();
-        String contentType = file.getContentType() == null ? "" : file.getContentType();
-
-        Map<String, Object> meta = new HashMap<>();
-        meta.put("tenantId", tenantId);
-        meta.put("source", "upload");
-        meta.put("filename", filename);
-        meta.put("type", "kb"); // ensure every doc has type=kb
-
-        List<Document> docs;
-        if (filename.endsWith(".pdf") || contentType.toLowerCase().contains("pdf")) {
-            docs = PdfUtil.readPdfAsDocuments(
-                    new InputStreamResource(file.getInputStream()),
-                    ExtractedTextFormatter.defaults(),
-                    meta
-            );
-        } else {
-            var reader = new TikaDocumentReader(
-                    new InputStreamResource(file.getInputStream()),
-                    ExtractedTextFormatter.defaults()
-            );
-            docs = reader.get();
-            docs.forEach(d -> d.getMetadata().putAll(meta));
+        try (var in = file.getInputStream()) {
+            // Simple constructor works across versions
+            var reader = new TikaDocumentReader(new InputStreamResource(in));
+            var docs = reader.get();
+            int count = persist(tenantId, docs, Map.of(
+                    "filename", file.getOriginalFilename(),
+                    "type", "kb"
+            ));
+            events.ingested(tenantId, String.valueOf(file.getOriginalFilename()), count);
+            return count;
         }
-        return ingestDocuments(meta, docs);
     }
 
     public int ingestUrl(String tenantId, String url) {
         var reader = new JsoupDocumentReader(url);
-        List<Document> docs = reader.get();
-
-        String filename = deriveFilenameFromUrl(url);
-
-        Map<String, Object> meta = new HashMap<>();
-        meta.put("tenantId", tenantId);
-        meta.put("source", "url");
-        meta.put("url", url);
-        meta.put("filename", filename);
-        meta.put("type", "kb");
-
-        docs.forEach(d -> d.getMetadata().putAll(meta));
-
-        return ingestDocuments(meta, docs);
+        var docs = reader.get();
+        int count = persist(tenantId, docs, Map.of(
+                "url", url,
+                "type", "kb"
+        ));
+        events.ingested(tenantId, url, count);
+        return count;
     }
 
-    private int ingestDocuments(Map<String, Object> sourceMeta, List<Document> docs) {
-        List<Document> working = new ArrayList<>(docs);
-        working.removeIf(d -> d.getText() == null || d.getText().isBlank());
-
-        var splitter = TokenTextSplitter.builder()
-                .withChunkSize(800)
-                .withMinChunkSizeChars(200)
-                .build();
-
-        List<Document> chunks = splitter.apply(working);
-
-        if (chunks.isEmpty()) {
-            StringBuilder full = new StringBuilder();
-            for (Document d : working) {
-                if (d.getText() != null) full.append(d.getText()).append("\n");
-            }
-            if (full.length() == 0) {
-                throw new IllegalArgumentException("No ingestible text content found in the document(s).");
-            }
-            Document single = new Document(full.toString(), new HashMap<>(sourceMeta));
-            chunks = List.of(single);
-        } else {
-            for (Document c : chunks) {
-                c.getMetadata().putAll(sourceMeta);
-                c.getMetadata().putIfAbsent("type", "kb");
-            }
-        }
-
-        vectorStore.add(chunks);
-        return chunks.size();
+    public int ingestHtml(String tenantId, String url) throws Exception {
+        String html = crawler.fetchHtml(url);
+        String text = crawler.normalizeHtml(html, url);
+        var doc = new Document(text, Map.of("url", url, "type", "kb"));
+        int count = persist(tenantId, java.util.List.of(doc), Map.of("url", url, "type", "kb"));
+        events.ingested(tenantId, url, count);
+        return count;
     }
 
-    private static String deriveFilenameFromUrl(String url) {
-        try {
-            URI uri = URI.create(url);
-            String path = uri.getPath();
-            if (path == null || path.isBlank() || path.equals("/")) {
-                return (uri.getHost() != null ? uri.getHost() : "page") + ".html";
-            }
-            String[] parts = path.split("/");
-            String last = parts[parts.length - 1];
-            if (last == null || last.isBlank()) {
-                return (uri.getHost() != null ? uri.getHost() : "page") + ".html";
-            }
-            return last.toLowerCase();
-        } catch (Exception e) {
-            return "page.html";
+    public int ingestSitemap(String tenantId, String sitemapUrl, int maxUrls) {
+        int total = 0;
+        for (String url : crawler.fetchUrls(sitemapUrl, maxUrls)) {
+            try { total += ingestHtml(tenantId, url); } catch (Exception ignored) {}
         }
+        return total;
+    }
+
+    public int ingestText(String tenantId, String source, String text) {
+        var base = new Document(text, Map.of(
+                source != null && source.startsWith("http") ? "url" : "filename", source == null ? "text" : source,
+                "type", "kb"
+        ));
+        return persist(tenantId, java.util.List.of(base), Map.of(
+                source != null && source.startsWith("http") ? "url" : "filename", source == null ? "text" : source,
+                "type", "kb"
+        ));
+    }
+
+    private int persist(String tenantId, List<Document> docs, Map<String, Object> baseMeta) {
+        var chunks = new TokenTextSplitter().apply(docs);
+        var out = new java.util.ArrayList<Document>(chunks.size());
+        String source = (String) baseMeta.getOrDefault("filename", baseMeta.getOrDefault("url", "doc"));
+        for (var d : chunks) {
+            String normalized = d.getText().replaceAll("\\s+", " ").trim();
+            normalized = dlp.redact(normalized);
+            if (!dedup.recordIfNew(tenantId, normalized, source)) {
+                continue; // skip duplicate chunk
+            }
+            d.getMetadata().putAll(baseMeta);
+            d.getMetadata().put("tenantId", tenantId);
+            // Replace text with redacted/normalized content we used for dedup
+            var newDoc = new Document(normalized, d.getMetadata());
+            out.add(newDoc);
+        }
+        if (!out.isEmpty()) {
+            if (remote != null && remote.isEnabled()) remote.add(tenantId, out);
+            else tenantVectors.add(tenantId, out);
+        }
+        return out.size();
     }
 }

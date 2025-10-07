@@ -1,0 +1,7 @@
+image: owl-retrieval-service
+replicaCount: 2
+qdrant:
+  host: qdrant
+  port: 6334
+ollama:
+  baseUrl: http://ollama:11434

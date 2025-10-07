@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "safety-service.fullname" . }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "safety-service.fullname" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "safety-service.fullname" . }}
+    spec:
+      containers:
+        - name: safety
+          image: {{ .Values.image }}
+          ports:
+            - containerPort: 9091
+          env:
+            - name: OWL_SAFETY_MODEL
+              value: {{ .Values.model | quote }}
+            - name: OWL_SAFETY_OLLAMA_BASE_URL
+              value: {{ .Values.ollama.baseUrl | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "safety-service.fullname" . }}
+spec:
+  selector:
+    app: {{ include "safety-service.fullname" . }}
+  ports:
+    - port: 9091
+      targetPort: 9091

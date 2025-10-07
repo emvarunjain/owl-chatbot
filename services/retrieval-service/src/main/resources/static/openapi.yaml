@@ -1,0 +1,43 @@
+openapi: 3.0.3
+info:
+  title: Owl Retrieval Service
+  version: 1.0.0
+paths:
+  /v1/search:
+    post:
+      summary: Search vector store
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tenantId: { type: string }
+                q: { type: string }
+                document: { type: string }
+                topK: { type: integer }
+              required: [tenantId, q]
+      responses:
+        '200': { description: OK }
+  /v1/add:
+    post:
+      summary: Add documents to vector store
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tenantId: { type: string }
+                docs:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      text: { type: string }
+                      metadata: { type: object }
+              required: [tenantId, docs]
+      responses:
+        '200': { description: OK }
